@@ -16,6 +16,14 @@ model = whisper.load_model("turbo")
 print("done.")
 
 for filename in argv[1:]:
+    # Create VTT filename
+    vtt_filename = os.path.splitext(filename)[0] + ".vtt"
+
+    # Check if VTT file already exists
+    if os.path.exists(vtt_filename):
+        print(f">>> Skipping {filename} - VTT file already exists.")
+        continue
+
     print(f">>> opening {filename}....")
 
     # Get audio length
@@ -34,9 +42,6 @@ for filename in argv[1:]:
     # Calculate ratio
     ratio = audio_length / transcription_time
 
-    # Create VTT filename
-    vtt_filename = os.path.splitext(filename)[0] + ".vtt"
-
     with open(vtt_filename, "w", encoding="utf-8") as vtt_file:
         vtt_file.write("WEBVTT\n\n")
 
@@ -51,3 +56,4 @@ for filename in argv[1:]:
     print(f"Audio length: {format_timestamp(audio_length)}")
     print(f"Transcription time: {format_timestamp(transcription_time)}")
     print(f"Transcribed at {ratio:.2f}x speed")
+
