@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-import whisper
 from sys import argv
 import os
 from datetime import timedelta
@@ -12,7 +11,6 @@ def format_timestamp(seconds):
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{td.microseconds//1000:03d}"
 
 print("loading model....", end="")
-model = whisper.load_model("turbo")
 print("done.")
 
 for filename in argv[1:]:
@@ -21,8 +19,14 @@ for filename in argv[1:]:
 
     # Check if VTT file already exists
     if os.path.exists(vtt_filename):
-        print(f">>> Skipping {filename} - VTT file already exists.")
+        print(f"=== Skipping {filename} - VTT file already exists.")
         continue
+
+    import torch
+    import whisper
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    fp16 = False if device=='cpu' else True
+    model = whisper.load_model("turbo").to(device)
 
     print(f">>> opening {filename}....")
 
@@ -33,7 +37,7 @@ for filename in argv[1:]:
     # Start timing the transcription
     start_time = time.time()
 
-    result = model.transcribe(filename, word_timestamps=True)
+    result = model.transcribe(filename, word_timestamps=True, fp16=fp16)
 
     # End timing the transcription
     end_time = time.time()
