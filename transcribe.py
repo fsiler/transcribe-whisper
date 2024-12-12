@@ -3,6 +3,7 @@ import whisper
 from sys import argv
 import os
 from datetime import timedelta
+import time
 
 def format_timestamp(seconds):
     td = timedelta(seconds=seconds)
@@ -15,8 +16,23 @@ model = whisper.load_model("turbo")
 print("done.")
 
 for filename in argv[1:]:
-    print(f"opening {filename}....")
+    print(f">>> opening {filename}....")
+
+    # Get audio length
+    audio = whisper.load_audio(filename)
+    audio_length = len(audio) / whisper.audio.SAMPLE_RATE
+
+    # Start timing the transcription
+    start_time = time.time()
+
     result = model.transcribe(filename, word_timestamps=True)
+
+    # End timing the transcription
+    end_time = time.time()
+    transcription_time = end_time - start_time
+
+    # Calculate ratio
+    ratio = audio_length / transcription_time
 
     # Create VTT filename
     vtt_filename = os.path.splitext(filename)[0] + ".vtt"
@@ -32,3 +48,6 @@ for filename in argv[1:]:
             vtt_file.write(f"{segment['text'].strip()}\n\n")
 
     print(f"VTT file created: {vtt_filename}")
+    print(f"Audio length: {format_timestamp(audio_length)}")
+    print(f"Transcription time: {format_timestamp(transcription_time)}")
+    print(f"Transcribed at {ratio:.2f}x speed")
