@@ -11,16 +11,25 @@ import sys
 import atexit
 
 from datetime import timedelta
-from sys import argv
 
-# Global flag to indicate whether to continue processing files
+# Global flags
 continue_processing = True
+sigint_count = 0
 
 def signal_handler(signum, frame):
-    global continue_processing
+    global continue_processing, sigint_count
+
     if signum == signal.SIGHUP:
         print("\nReceived SIGHUP. Will stop after current file.")
         continue_processing = False
+    elif signum == signal.SIGINT:
+        sigint_count += 1
+        if sigint_count == 1:
+            print("\nReceived first SIGINT. Will stop after current file.")
+            continue_processing = False
+        else:
+            print("\nReceived second SIGINT. Exiting immediately.")
+            sys.exit(0)
 
 def cleanup(working_fn):
     if os.path.exists(working_fn):
@@ -132,11 +141,17 @@ def transcribe(orig_fn):
         atexit.unregister(cleanup)
 
 if __name__ == "__main__":
-    # Set up signal handler
+    # Set up signal handlers
     signal.signal(signal.SIGHUP, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
 
-    for orig_fn in argv[1:]:
+    for orig_fn in sys.argv[1:]:
         if not continue_processing:
-            print("Stopping due to SIGHUP.")
+            print("Stopping due to received signal.")
             break
         transcribe(orig_fn)
+        # Reset SIGINT count after each file
+        sigint_count = 0
+
+    print("Processing complete.")
+
