@@ -70,7 +70,7 @@ def transcribe(orig_fn):
     dest_fn = os.path.splitext(orig_fn)[0] + output_ext
 
     # Create working filename
-    working_fn = dest_fn + '.temp'
+    working_fn = dest_fn + '.temp.mkv'
 
     # Register cleanup function
     atexit.register(cleanup, working_fn)
