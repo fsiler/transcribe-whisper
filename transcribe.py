@@ -16,8 +16,8 @@ def format_timestamp(seconds):
     minutes, seconds = divmod(remainder, 60)
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{td.microseconds//1000:03d}"
 
-def get_file_streams(src_fn):
-    cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_streams', src_fn]
+def get_file_streams(filename):
+    cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_streams', filename]
     result = subprocess.run(cmd, capture_output=True, text=True)
     data = json.loads(result.stdout)
     return data['streams']
@@ -28,15 +28,10 @@ def has_subtitle_stream(streams):
 def has_only_audio_and_subtitles(streams):
     return all(stream['codec_type'] in ['audio', 'subtitle'] for stream in streams)
 
-def set_aside_original_file(src_fn):
-    temp_filename = src_fn + '.temp'
-    shutil.move(src_fn, temp_filename)
-    return temp_filename
-
-def transcribe(src_fn):
+def transcribe(orig_fn):
     start_time = time.time()
-    print(f"=== examining {src_fn}: ", end="", flush=True)
-    streams = get_file_streams(src_fn)
+    print(f"=== examining {orig_fn}: ", end="", flush=True)
+    streams = get_file_streams(orig_fn)
 
     if has_subtitle_stream(streams):
         print(f"file has subtitle stream, skipping.")
@@ -45,8 +40,11 @@ def transcribe(src_fn):
     # Determine output file extension
     output_ext = '.mka' if has_only_audio_and_subtitles(streams) else '.mkv'
 
-    # Create temporary output filename
-    dest_fn = os.path.splitext(src_fn)[0] + output_ext + '.temp'
+    # Create destination filename
+    dest_fn = os.path.splitext(orig_fn)[0] + output_ext
+
+    # Create working filename
+    working_fn = dest_fn + '.temp'
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     fp16 = False if device=='cpu' else True
@@ -55,13 +53,13 @@ def transcribe(src_fn):
     model = whisper.load_model("turbo").to(device)
     print("done.", flush=True)
 
-    print(f"    opening {src_fn}....")
+    print(f"    opening {orig_fn}....")
 
     # Get audio length
-    audio = whisper.load_audio(src_fn)
+    audio = whisper.load_audio(orig_fn)
     audio_length = len(audio) / whisper.audio.SAMPLE_RATE
 
-    result = model.transcribe(src_fn, word_timestamps=True, fp16=fp16)
+    result = model.transcribe(orig_fn, word_timestamps=True, fp16=fp16)
 
     # Prepare SRT content
     srt_content = ""
@@ -70,14 +68,14 @@ def transcribe(src_fn):
         end_time = format_timestamp(segment['end'])
         srt_content += f"{i+1}\n{start_time} --> {end_time}\n{segment['text'].strip()}\n\n"
 
-    # Write transcription to temporary MKA/MKV file
+    # Write transcription to working file
     cmd = [
-        'ffmpeg', '-i', src_fn,
+        'ffmpeg', '-i', orig_fn,
         '-i', '-',
         '-map', '0', '-map', '1',
         '-c', 'copy',
         '-c:s', 'srt',
-        dest_fn
+        working_fn
     ]
 
     subprocess.run(cmd, input=srt_content.encode('utf-8'), check=True)
@@ -89,16 +87,23 @@ def transcribe(src_fn):
     # Calculate ratio
     ratio = audio_length / transcription_time
 
-    print(f"Transcription file created: {dest_fn}")
+    print(f"Transcription file created: {working_fn}")
     print(f"Audio length: {format_timestamp(audio_length)}")
     print(f"Transcription time: {format_timestamp(transcription_time)}")
     print(f"Transcribed at {ratio:.2f}x speed")
 
-    # Replace the original file with the new one
-    print(f"replacing original {src_fn} with {dest_fn}...", end="", flush=True)
-    os.replace(dest_fn, src_fn)
+    # Move working file to destination
+    print(f"Moving {working_fn} to {dest_fn}...", end="", flush=True)
+    shutil.move(working_fn, dest_fn)
     print("done.")
 
+    # Clean up original file if different from destination
+    if orig_fn != dest_fn:
+        print(f"Removing original file {orig_fn}...", end="", flush=True)
+        os.remove(orig_fn)
+        print("done.")
+
 if __name__ == "__main__":
-    for src_fn in argv[1:]:
-        transcribe(src_fn)
+    for orig_fn in argv[1:]:
+        transcribe(orig_fn)
+
