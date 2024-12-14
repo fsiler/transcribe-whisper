@@ -103,6 +103,7 @@ def transcribe(orig_fn):
             cmd = [
                 'ffmpeg', '-i', orig_fn,
                 '-i', '-',
+                '-map_metadata', '0',
                 '-map', '0', '-map', '1',
                 '-c', 'copy',
                 '-c:s', 'srt',
