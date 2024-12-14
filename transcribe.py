@@ -33,33 +33,28 @@ def set_aside_original_file(filename):
     shutil.move(filename, temp_filename)
     return temp_filename
 
-def offer_to_delete_temp(temp_filename):
-    response = input(f"Do you want to delete the temporary file {temp_filename}? (y/n): ")
-    if response.lower() == 'y':
-        os.remove(temp_filename)
-        print(f"Temporary file {temp_filename} has been deleted.")
-    else:
-        print(f"Temporary file {temp_filename} has been kept.")
-
 def transcribe(filename):
+    original_filename = filename
+
+    # If the source file is already .mka or .mkv, set it aside
+    if filename.endswith(('.mka', '.mkv')):
+        filename = set_aside_original_file(filename)
+        print(f"Original file {original_filename} has been renamed to {filename}.")
+
     streams = get_file_streams(filename)
 
     # Check if file has subtitle stream
     if has_subtitle_stream(streams):
         print(f"=== Skipping {filename} - Subtitle stream already exists.")
+        if filename != original_filename:
+            shutil.move(filename, original_filename)  # Move the file back
         return
 
     # Determine output file extension
     output_ext = '.mka' if has_only_audio_and_subtitles(streams) else '.mkv'
 
     # Create output filename
-    output_filename = os.path.splitext(filename)[0] + output_ext
-
-    # If the source file is already .mka or .mkv, set it aside
-    if filename.endswith(('.mka', '.mkv')):
-        temp_filename = set_aside_original_file(filename)
-    else:
-        temp_filename = None
+    output_filename = os.path.splitext(original_filename)[0] + output_ext
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     fp16 = False if device=='cpu' else True
@@ -110,9 +105,9 @@ def transcribe(filename):
     print(f"Transcription time: {format_timestamp(transcription_time)}")
     print(f"Transcribed at {ratio:.2f}x speed")
 
-    # If we set aside the original file, offer to delete it
-    if temp_filename:
-        offer_to_delete_temp(temp_filename)
+    print(f"removing original {filename}...", end="", flush=True)
+    os.remove(filename)
+    print("done.")
 
 if __name__ == "__main__":
     for filename in argv[1:]:
