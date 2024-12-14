@@ -55,7 +55,7 @@ def has_only_audio_and_subtitles(streams):
     return all(stream['codec_type'] in ['audio', 'subtitle'] for stream in streams)
 
 def transcribe(orig_fn):
-    start_time = time.time()
+    transcription_start_time = time.time()
     print(f"=== examining {orig_fn}: ", end="", flush=True)
     streams = get_file_streams(orig_fn)
 
@@ -111,16 +111,11 @@ def transcribe(orig_fn):
         subprocess.run(cmd, input=srt_content.encode('utf-8'), check=True)
 
         # End timing the transcription
-        end_time = time.time()
-        transcription_time = end_time - start_time
+        transcription_end_time = time.time()
+        transcription_time = transcription_end_time - transcription_start_time
 
         # Calculate ratio
         ratio = audio_length / transcription_time
-
-        print(f"Transcription file created: {working_fn}")
-        print(f"Audio length: {format_timestamp(audio_length)}")
-        print(f"Transcription time: {format_timestamp(transcription_time)}")
-        print(f"Transcribed at {ratio:.2f}x speed")
 
         # Move working file to destination
         print(f"Moving {working_fn} to {dest_fn}...", end="", flush=True)
@@ -132,6 +127,11 @@ def transcribe(orig_fn):
             print(f"Removing original file {orig_fn}...", end="", flush=True)
             os.remove(orig_fn)
             print("done.")
+
+        print(f"Transcription file created: {working_fn}")
+        print(f"Audio length: {format_timestamp(audio_length)}")
+        print(f"Transcription time: {format_timestamp(transcription_time)}")
+        print(f"Transcribed at {ratio:.2f}x speed")
 
     except Exception as e:
         print(f"An error occurred: {e}")
