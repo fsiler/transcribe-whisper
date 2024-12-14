@@ -5,6 +5,7 @@ import torch
 import whisper
 import subprocess
 import json
+import shutil
 
 from datetime import timedelta
 from sys import argv
@@ -15,20 +16,50 @@ def format_timestamp(seconds):
     minutes, seconds = divmod(remainder, 60)
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{td.microseconds//1000:03d}"
 
-def has_subtitle_stream(filename):
+def get_file_streams(filename):
     cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_streams', filename]
     result = subprocess.run(cmd, capture_output=True, text=True)
     data = json.loads(result.stdout)
-    return any(stream['codec_type'] == 'subtitle' for stream in data['streams'])
+    return data['streams']
+
+def has_subtitle_stream(streams):
+    return any(stream['codec_type'] == 'subtitle' for stream in streams)
+
+def has_only_audio_and_subtitles(streams):
+    return all(stream['codec_type'] in ['audio', 'subtitle'] for stream in streams)
+
+def set_aside_original_file(filename):
+    temp_filename = filename + '.temp'
+    shutil.move(filename, temp_filename)
+    return temp_filename
+
+def offer_to_delete_temp(temp_filename):
+    response = input(f"Do you want to delete the temporary file {temp_filename}? (y/n): ")
+    if response.lower() == 'y':
+        os.remove(temp_filename)
+        print(f"Temporary file {temp_filename} has been deleted.")
+    else:
+        print(f"Temporary file {temp_filename} has been kept.")
 
 def transcribe(filename):
+    streams = get_file_streams(filename)
+
     # Check if file has subtitle stream
-    if has_subtitle_stream(filename):
+    if has_subtitle_stream(streams):
         print(f"=== Skipping {filename} - Subtitle stream already exists.")
         return
 
-    # Create output filename (MKA or MKV)
-    output_filename = os.path.splitext(filename)[0] + ".mka"
+    # Determine output file extension
+    output_ext = '.mka' if has_only_audio_and_subtitles(streams) else '.mkv'
+
+    # Create output filename
+    output_filename = os.path.splitext(filename)[0] + output_ext
+
+    # If the source file is already .mka or .mkv, set it aside
+    if filename.endswith(('.mka', '.mkv')):
+        temp_filename = set_aside_original_file(filename)
+    else:
+        temp_filename = None
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     fp16 = False if device=='cpu' else True
@@ -79,6 +110,11 @@ def transcribe(filename):
     print(f"Transcription time: {format_timestamp(transcription_time)}")
     print(f"Transcribed at {ratio:.2f}x speed")
 
+    # If we set aside the original file, offer to delete it
+    if temp_filename:
+        offer_to_delete_temp(temp_filename)
+
 if __name__ == "__main__":
     for filename in argv[1:]:
         transcribe(filename)
+
