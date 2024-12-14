@@ -3,9 +3,11 @@ import os
 import time
 import torch
 import whisper
+import subprocess
+import json
 
-from datetime    import timedelta
-from sys         import argv, modules
+from datetime import timedelta
+from sys import argv
 
 def format_timestamp(seconds):
     td = timedelta(seconds=seconds)
@@ -13,14 +15,20 @@ def format_timestamp(seconds):
     minutes, seconds = divmod(remainder, 60)
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{td.microseconds//1000:03d}"
 
-def transcribe(filename):
-    # Create VTT filename
-    vtt_filename = os.path.splitext(filename)[0] + ".vtt"
+def has_subtitle_stream(filename):
+    cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_streams', filename]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    data = json.loads(result.stdout)
+    return any(stream['codec_type'] == 'subtitle' for stream in data['streams'])
 
-    # Check if VTT file already exists
-    if os.path.exists(vtt_filename):
-        print(f"=== Skipping {filename} - VTT file already exists.")
+def transcribe(filename):
+    # Check if file has subtitle stream
+    if has_subtitle_stream(filename):
+        print(f"=== Skipping {filename} - Subtitle stream already exists.")
         return
+
+    # Create output filename (MKA or MKV)
+    output_filename = os.path.splitext(filename)[0] + ".mka"
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     fp16 = False if device=='cpu' else True
@@ -47,17 +55,26 @@ def transcribe(filename):
     # Calculate ratio
     ratio = audio_length / transcription_time
 
-    with open(vtt_filename, "w", encoding="utf-8") as vtt_file:
-        vtt_file.write("WEBVTT\n\n")
+    # Prepare SRT content
+    srt_content = ""
+    for i, segment in enumerate(result["segments"]):
+        start_time = format_timestamp(segment['start'])
+        end_time = format_timestamp(segment['end'])
+        srt_content += f"{i+1}\n{start_time} --> {end_time}\n{segment['text'].strip()}\n\n"
 
-        for i, segment in enumerate(result["segments"]):
-            start_time = format_timestamp(segment['start'])
-            end_time = format_timestamp(segment['end'])
-            vtt_file.write(f"{i+1}\n")
-            vtt_file.write(f"{start_time} --> {end_time}\n")
-            vtt_file.write(f"{segment['text'].strip()}\n\n")
+    # Write transcription to MKA/MKV file
+    cmd = [
+        'ffmpeg', '-i', filename,
+        '-i', '-',
+        '-map', '0', '-map', '1',
+        '-c', 'copy',
+        '-c:s', 'srt',
+        output_filename
+    ]
 
-    print(f"VTT file created: {vtt_filename}")
+    subprocess.run(cmd, input=srt_content.encode('utf-8'), check=True)
+
+    print(f"Transcription file created: {output_filename}")
     print(f"Audio length: {format_timestamp(audio_length)}")
     print(f"Transcription time: {format_timestamp(transcription_time)}")
     print(f"Transcribed at {ratio:.2f}x speed")
