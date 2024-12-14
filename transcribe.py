@@ -6,9 +6,26 @@ import whisper
 import subprocess
 import json
 import shutil
+import signal
+import sys
+import atexit
 
 from datetime import timedelta
 from sys import argv
+
+# Global flag to indicate whether to continue processing files
+continue_processing = True
+
+def signal_handler(signum, frame):
+    global continue_processing
+    if signum == signal.SIGHUP:
+        print("\nReceived SIGHUP. Will stop after current file.")
+        continue_processing = False
+
+def cleanup(working_fn):
+    if os.path.exists(working_fn):
+        print(f"\nCleaning up temporary file: {working_fn}")
+        os.remove(working_fn)
 
 def format_timestamp(seconds):
     td = timedelta(seconds=seconds)
@@ -46,64 +63,80 @@ def transcribe(orig_fn):
     # Create working filename
     working_fn = dest_fn + '.temp'
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    fp16 = False if device=='cpu' else True
+    # Register cleanup function
+    atexit.register(cleanup, working_fn)
 
-    print("loading model...", end="", flush=True)
-    model = whisper.load_model("turbo").to(device)
-    print("done.", flush=True)
+    try:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        fp16 = False if device=='cpu' else True
 
-    print(f"    opening {orig_fn}....")
+        print("loading model...", end="", flush=True)
+        model = whisper.load_model("turbo").to(device)
+        print("done.", flush=True)
 
-    # Get audio length
-    audio = whisper.load_audio(orig_fn)
-    audio_length = len(audio) / whisper.audio.SAMPLE_RATE
+        print(f"    opening {orig_fn}....")
 
-    result = model.transcribe(orig_fn, word_timestamps=True, fp16=fp16)
+        # Get audio length
+        audio = whisper.load_audio(orig_fn)
+        audio_length = len(audio) / whisper.audio.SAMPLE_RATE
 
-    # Prepare SRT content
-    srt_content = ""
-    for i, segment in enumerate(result["segments"]):
-        start_time = format_timestamp(segment['start'])
-        end_time = format_timestamp(segment['end'])
-        srt_content += f"{i+1}\n{start_time} --> {end_time}\n{segment['text'].strip()}\n\n"
+        result = model.transcribe(orig_fn, word_timestamps=True, fp16=fp16)
 
-    # Write transcription to working file
-    cmd = [
-        'ffmpeg', '-i', orig_fn,
-        '-i', '-',
-        '-map', '0', '-map', '1',
-        '-c', 'copy',
-        '-c:s', 'srt',
-        working_fn
-    ]
+        # Prepare SRT content
+        srt_content = ""
+        for i, segment in enumerate(result["segments"]):
+            start_time = format_timestamp(segment['start'])
+            end_time = format_timestamp(segment['end'])
+            srt_content += f"{i+1}\n{start_time} --> {end_time}\n{segment['text'].strip()}\n\n"
 
-    subprocess.run(cmd, input=srt_content.encode('utf-8'), check=True)
+        # Write transcription to working file
+        cmd = [
+            'ffmpeg', '-i', orig_fn,
+            '-i', '-',
+            '-map', '0', '-map', '1',
+            '-c', 'copy',
+            '-c:s', 'srt',
+            working_fn
+        ]
 
-    # End timing the transcription
-    end_time = time.time()
-    transcription_time = end_time - start_time
+        subprocess.run(cmd, input=srt_content.encode('utf-8'), check=True)
 
-    # Calculate ratio
-    ratio = audio_length / transcription_time
+        # End timing the transcription
+        end_time = time.time()
+        transcription_time = end_time - start_time
 
-    print(f"Transcription file created: {working_fn}")
-    print(f"Audio length: {format_timestamp(audio_length)}")
-    print(f"Transcription time: {format_timestamp(transcription_time)}")
-    print(f"Transcribed at {ratio:.2f}x speed")
+        # Calculate ratio
+        ratio = audio_length / transcription_time
 
-    # Move working file to destination
-    print(f"Moving {working_fn} to {dest_fn}...", end="", flush=True)
-    shutil.move(working_fn, dest_fn)
-    print("done.")
+        print(f"Transcription file created: {working_fn}")
+        print(f"Audio length: {format_timestamp(audio_length)}")
+        print(f"Transcription time: {format_timestamp(transcription_time)}")
+        print(f"Transcribed at {ratio:.2f}x speed")
 
-    # Clean up original file if different from destination
-    if orig_fn != dest_fn:
-        print(f"Removing original file {orig_fn}...", end="", flush=True)
-        os.remove(orig_fn)
+        # Move working file to destination
+        print(f"Moving {working_fn} to {dest_fn}...", end="", flush=True)
+        shutil.move(working_fn, dest_fn)
         print("done.")
 
-if __name__ == "__main__":
-    for orig_fn in argv[1:]:
-        transcribe(orig_fn)
+        # Clean up original file if different from destination
+        if orig_fn != dest_fn:
+            print(f"Removing original file {orig_fn}...", end="", flush=True)
+            os.remove(orig_fn)
+            print("done.")
 
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        raise
+    finally:
+        # Unregister cleanup function if everything went well
+        atexit.unregister(cleanup)
+
+if __name__ == "__main__":
+    # Set up signal handler
+    signal.signal(signal.SIGHUP, signal_handler)
+
+    for orig_fn in argv[1:]:
+        if not continue_processing:
+            print("Stopping due to SIGHUP.")
+            break
+        transcribe(orig_fn)
