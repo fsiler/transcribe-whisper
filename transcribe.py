@@ -34,6 +34,7 @@ def set_aside_original_file(filename):
     return temp_filename
 
 def transcribe(filename):
+    start_time = time.time()
     print(f"=== examining {filename}: ", end="", flush=True)
     streams = get_file_streams(filename)
 
@@ -67,17 +68,7 @@ def transcribe(filename):
     audio = whisper.load_audio(filename)
     audio_length = len(audio) / whisper.audio.SAMPLE_RATE
 
-    # Start timing the transcription
-    start_time = time.time()
-
     result = model.transcribe(filename, word_timestamps=True, fp16=fp16)
-
-    # End timing the transcription
-    end_time = time.time()
-    transcription_time = end_time - start_time
-
-    # Calculate ratio
-    ratio = audio_length / transcription_time
 
     # Prepare SRT content
     srt_content = ""
@@ -97,6 +88,13 @@ def transcribe(filename):
     ]
 
     subprocess.run(cmd, input=srt_content.encode('utf-8'), check=True)
+
+    # End timing the transcription
+    end_time = time.time()
+    transcription_time = end_time - start_time
+
+    # Calculate ratio
+    ratio = audio_length / transcription_time
 
     print(f"Transcription file created: {output_filename}")
     print(f"Audio length: {format_timestamp(audio_length)}")
