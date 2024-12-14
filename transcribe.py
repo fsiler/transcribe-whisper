@@ -83,11 +83,12 @@ def transcribe(orig_fn):
             model = whisper.load_model("turbo").to(device)
             print("done.", flush=True)
 
-            print(f"    opening {orig_fn}....")
+            print(f"    opening {orig_fn}", flush=True)
 
             # Get audio length
             audio = whisper.load_audio(orig_fn)
             audio_length = len(audio) / whisper.audio.SAMPLE_RATE
+            print(f"    found audio length {format_timestamp(audio_length)}", flush=True)
 
             result = model.transcribe(orig_fn, word_timestamps=True, fp16=fp16)
 
@@ -110,12 +111,6 @@ def transcribe(orig_fn):
 
             subprocess.run(cmd, input=srt_content.encode('utf-8'), check=True)
 
-            # End timing the transcription
-            transcription_end_time = time.time()
-            transcription_time = transcription_end_time - transcription_start_time
-
-            # Calculate ratio
-            ratio = audio_length / transcription_time
 
             # Move working file to destination
             print(f"Moving {working_fn} to {dest_fn}...", end="", flush=True)
@@ -128,10 +123,15 @@ def transcribe(orig_fn):
                 os.remove(orig_fn)
                 print("done.")
 
-            print(f"Transcription file created: {dest_fn}")
-            print(f"Audio length: {format_timestamp(audio_length)}")
-            print(f"Transcription time: {format_timestamp(transcription_time)}")
-            print(f"Transcribed at {ratio:.2f}x speed")
+            # End timing the transcription
+            transcription_end_time = time.time()
+            transcription_time = transcription_end_time - transcription_start_time
+
+            # Calculate ratio
+            ratio = audio_length / transcription_time
+
+            print(f"Output: {dest_fn}")
+            print(f"Length: {format_timestamp(audio_length)}, Transcription time: {format_timestamp(transcription_time)} ({ratio:.2f}x speed)")
 
         except Exception as e:
             print(f"An error occurred: {e}")
