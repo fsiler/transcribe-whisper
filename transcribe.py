@@ -32,11 +32,6 @@ def signal_handler(signum, frame):
             print("\nReceived second SIGINT. Exiting immediately.")
             sys.exit(0)
 
-def cleanup(working_fn):
-    if os.path.exists(working_fn):
-        print(f"\nCleaning up temporary file: {working_fn}")
-        os.remove(working_fn)
-
 def format_timestamp(seconds):
     td = timedelta(seconds=seconds)
     hours, remainder = divmod(td.seconds, 3600)
@@ -70,73 +65,64 @@ def transcribe(orig_fn):
     # Create destination filename
     dest_fn = os.path.splitext(orig_fn)[0] + output_ext
 
-    # Create a temporary directory
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    fp16 = False if device=='cpu' else True
+
+    print("loading model...", end="", flush=True)
+    model = whisper.load_model("turbo").to(device)
+    print("done.", flush=True)
+
+    print(f"    opening {orig_fn}", flush=True)
+
+    # Get audio length
+    audio = whisper.load_audio(orig_fn)
+    audio_length = len(audio) / whisper.audio.SAMPLE_RATE
+    print(f"    found audio length {format_timestamp(audio_length)}", flush=True)
+
+    result = model.transcribe(orig_fn, word_timestamps=True, fp16=fp16)
+
+    # Prepare SRT content
+    srt_content = ""
+    for i, segment in enumerate(result["segments"]):
+        start_time = format_timestamp(segment['start'])
+        end_time = format_timestamp(segment['end'])
+        srt_content += f"{i+1}\n{start_time} --> {end_time}\n{segment['text'].strip()}\n\n"
+
     with tempfile.TemporaryDirectory() as temp_dir:
-        # Create the working filename within the temporary directory
         working_fn = os.path.join(temp_dir, 'temp_output.mkv')
 
-        try:
-            device = 'cuda' if torch.cuda.is_available() else 'cpu'
-            fp16 = False if device=='cpu' else True
+        cmd = [
+            'ffmpeg', '-i', orig_fn,
+            '-i', '-',
+            '-map_metadata', '0',
+            '-map', '0', '-map', '1',
+            '-c', 'copy',
+            '-c:s', 'srt',
+            working_fn
+        ]
 
-            print("loading model...", end="", flush=True)
-            model = whisper.load_model("turbo").to(device)
-            print("done.", flush=True)
+        subprocess.check_output(cmd, input=srt_content.encode('utf-8'))
 
-            print(f"    opening {orig_fn}", flush=True)
+        # Move working file to destination
+        print(f"Moving {working_fn} to {dest_fn}...", end="", flush=True)
+        shutil.move(working_fn, dest_fn)
+        print("done.")
 
-            # Get audio length
-            audio = whisper.load_audio(orig_fn)
-            audio_length = len(audio) / whisper.audio.SAMPLE_RATE
-            print(f"    found audio length {format_timestamp(audio_length)}", flush=True)
+    # Clean up original file if different from destination
+    if orig_fn != dest_fn:
+        print(f"Removing original file {orig_fn}...", end="", flush=True)
+        os.remove(orig_fn)
+        print("done.")
 
-            result = model.transcribe(orig_fn, word_timestamps=True, fp16=fp16)
+    # End timing the transcription
+    transcription_end_time = time.time()
+    transcription_time = transcription_end_time - transcription_start_time
 
-            # Prepare SRT content
-            srt_content = ""
-            for i, segment in enumerate(result["segments"]):
-                start_time = format_timestamp(segment['start'])
-                end_time = format_timestamp(segment['end'])
-                srt_content += f"{i+1}\n{start_time} --> {end_time}\n{segment['text'].strip()}\n\n"
+    # Calculate ratio
+    ratio = audio_length / transcription_time
 
-            # Write transcription to working file
-            cmd = [
-                'ffmpeg', '-i', orig_fn,
-                '-i', '-',
-                '-map_metadata', '0',
-                '-map', '0', '-map', '1',
-                '-c', 'copy',
-                '-c:s', 'srt',
-                working_fn
-            ]
-
-            subprocess.run(cmd, input=srt_content.encode('utf-8'), check=True)
-
-
-            # Move working file to destination
-            print(f"Moving {working_fn} to {dest_fn}...", end="", flush=True)
-            shutil.move(working_fn, dest_fn)
-            print("done.")
-
-            # Clean up original file if different from destination
-            if orig_fn != dest_fn:
-                print(f"Removing original file {orig_fn}...", end="", flush=True)
-                os.remove(orig_fn)
-                print("done.")
-
-            # End timing the transcription
-            transcription_end_time = time.time()
-            transcription_time = transcription_end_time - transcription_start_time
-
-            # Calculate ratio
-            ratio = audio_length / transcription_time
-
-            print(f"Output: {dest_fn}")
-            print(f"Length: {format_timestamp(audio_length)}, Transcription time: {format_timestamp(transcription_time)} ({ratio:.2f}x speed)")
-
-        except Exception as e:
-            print(f"An error occurred: {e}")
-            raise
+    print(f"Output: {dest_fn}")
+    print(f"Length: {format_timestamp(audio_length)}, Transcription time: {format_timestamp(transcription_time)} ({ratio:.2f}x speed)")
 
 if __name__ == "__main__":
     # Set up signal handlers
