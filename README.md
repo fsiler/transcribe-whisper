@@ -9,6 +9,6 @@ python -m pip install -r requirements.txt
 
 ## Usage
 Invoke it by calling `transcribe.py` with any number of media files.
-Under the hood, `ffmpeg` is used to transcode, so a large number of file formats should work, including `.mp3`, `.m4a`, and `.mkv`.
+Under the hood, `ffmpeg` is used to transcode, so a large number of file formats should work, including `.mp3`, `.webm`, `.m4a`, and `.mkv`.
 Any file with an audio stream should work, including video files.
-The output is a `.vtt` subtitle file in the same folder as the origin.
+The output will be an `.mka` for audio+transcript, `.mkv` otherwise.
