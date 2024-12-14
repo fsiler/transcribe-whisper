@@ -34,21 +34,19 @@ def set_aside_original_file(filename):
     return temp_filename
 
 def transcribe(filename):
+    print(f"=== examining {filename}: ", end="", flush=True)
+    streams = get_file_streams(filename)
+
+    if has_subtitle_stream(streams):
+        print(f"file has subtitle stream, skipping.")
+        return
+
     original_filename = filename
 
     # If the source file is already .mka or .mkv, set it aside
     if filename.endswith(('.mka', '.mkv')):
         filename = set_aside_original_file(filename)
-        print(f"Original file {original_filename} has been renamed to {filename}.")
-
-    streams = get_file_streams(filename)
-
-    # Check if file has subtitle stream
-    if has_subtitle_stream(streams):
-        print(f"=== Skipping {filename} - Subtitle stream already exists.")
-        if filename != original_filename:
-            shutil.move(filename, original_filename)  # Move the file back
-        return
+        print(f"original file {original_filename} has been renamed to {filename}.")
 
     # Determine output file extension
     output_ext = '.mka' if has_only_audio_and_subtitles(streams) else '.mkv'
