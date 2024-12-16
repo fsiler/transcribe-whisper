@@ -10,6 +10,7 @@ import signal
 import sys
 import atexit
 import tempfile
+import argparse
 
 from datetime import timedelta
 
@@ -50,7 +51,7 @@ def has_subtitle_stream(streams):
 def has_only_audio_and_subtitles(streams):
     return all(stream['codec_type'] in ['audio', 'subtitle'] for stream in streams)
 
-def transcribe(orig_fn):
+def transcribe(orig_fn, preserve_original):
     transcription_start_time = time.time()
     print(f"=== examining {orig_fn}: ", end="", flush=True)
     streams = get_file_streams(orig_fn)
@@ -108,8 +109,8 @@ def transcribe(orig_fn):
         shutil.move(working_fn, dest_fn)
         print("done.")
 
-    # Clean up original file if different from destination
-    if orig_fn != dest_fn:
+    # Clean up original file if different from destination and not preserving it
+    if orig_fn != dest_fn and not preserve_original:
         print(f"Removing original file {orig_fn}...", end="", flush=True)
         os.remove(orig_fn)
         print("done.")
@@ -125,16 +126,27 @@ def transcribe(orig_fn):
     print(f"Length: {format_timestamp(audio_length)}, Transcription time: {format_timestamp(transcription_time)} ({ratio:.2f}x speed)")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Transcribe audio files and optionally preserve the original files.")
+
+    parser.add_argument('files', metavar='F', type=str, nargs='+',
+                        help='Files to process')
+
+    parser.add_argument('--preserve-original', action='store_true',
+                        help='Preserve the original files after processing')
+
+    args = parser.parse_args()
+
     # Set up signal handlers
     signal.signal(signal.SIGHUP, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
-    for orig_fn in sys.argv[1:]:
+    for orig_fn in args.files:
         if not continue_processing:
             print("Stopping due to received signal.")
             break
-        transcribe(orig_fn)
+        transcribe(orig_fn, args.preserve_original)
         # Reset SIGINT count after each file
         sigint_count = 0
 
     print("Processing complete.")
+
