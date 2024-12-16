@@ -8,9 +8,9 @@ import json
 import shutil
 import signal
 import sys
-import atexit
 import tempfile
 import argparse
+import platform
 
 from datetime import timedelta
 
@@ -51,6 +51,33 @@ def has_subtitle_stream(streams):
 def has_only_audio_and_subtitles(streams):
     return all(stream['codec_type'] in ['audio', 'subtitle'] for stream in streams)
 
+def copy_mod_access_times(src, dest):
+    # Set the access and modification times of dest to match src
+    st_info = os.stat(src)
+    os.utime(dest, (st_info.st_atime, st_info.st_mtime))
+
+def copy_xattrs_and_tags(src, dest):
+    # Only perform xattr and tag copying on macOS (Darwin)
+    if platform.system() == 'Darwin':
+        # List all extended attributes
+        try:
+            attrs = subprocess.check_output(['xattr', src]).decode().split()
+            for attr in attrs:
+                # Read each attribute from the source file
+                value = subprocess.check_output(['xattr', '-px', attr, src])
+                # Write the attribute to the destination file
+                subprocess.check_call(['xattr', '-wx', attr, value, dest])
+        except subprocess.CalledProcessError as e:
+            print(f"Error copying xattrs from {src} to {dest}: {e}")
+
+        # Copy Finder tags (stored in extended attributes)
+        try:
+            tags = subprocess.check_output(['tag', '-Nl', src])
+            subprocess.check_call(['tag', '-a',  tags, dest])
+        except subprocess.CalledProcessError:
+            print(f"No Finder tags to copy from {src}.")
+
+
 def transcribe(orig_fn, preserve_original):
     transcription_start_time = time.time()
     print(f"=== examining {orig_fn}: ", end="", flush=True)
@@ -60,14 +87,11 @@ def transcribe(orig_fn, preserve_original):
         print(f"file has subtitle stream, skipping.")
         return
 
-    # Determine output file extension
     output_ext = '.mka' if has_only_audio_and_subtitles(streams) else '.mkv'
-
-    # Create destination filename
     dest_fn = os.path.splitext(orig_fn)[0] + output_ext
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    fp16 = False if device=='cpu' else True
+    fp16 = False if device == 'cpu' else True
 
     print("loading model...", end="", flush=True)
     model = whisper.load_model("turbo").to(device)
@@ -75,14 +99,12 @@ def transcribe(orig_fn, preserve_original):
 
     print(f"    opening {orig_fn}", flush=True)
 
-    # Get audio length
     audio = whisper.load_audio(orig_fn)
     audio_length = len(audio) / whisper.audio.SAMPLE_RATE
     print(f"    found audio length {format_timestamp(audio_length)}", flush=True)
 
     result = model.transcribe(orig_fn, word_timestamps=True, fp16=fp16)
 
-    # Prepare SRT content
     srt_content = ""
     for i, segment in enumerate(result["segments"]):
         start_time = format_timestamp(segment['start'])
@@ -104,22 +126,22 @@ def transcribe(orig_fn, preserve_original):
 
         subprocess.check_output(cmd, input=srt_content.encode('utf-8'))
 
+        # Copy xattrs and tags from orig_fn to working_fn only on macOS
+        copy_mod_access_times(orig_fn, working_fn)
+
         # Move working file to destination
         print(f"Moving {working_fn} to {dest_fn}...", end="", flush=True)
         shutil.move(working_fn, dest_fn)
         print("done.")
 
-    # Clean up original file if different from destination and not preserving it
     if orig_fn != dest_fn and not preserve_original:
+        copy_xattrs_and_tags(orig_fn, working_fn)
         print(f"Removing original file {orig_fn}...", end="", flush=True)
         os.remove(orig_fn)
         print("done.")
 
-    # End timing the transcription
     transcription_end_time = time.time()
     transcription_time = transcription_end_time - transcription_start_time
-
-    # Calculate ratio
     ratio = audio_length / transcription_time
 
     print(f"Output: {dest_fn}")
@@ -149,4 +171,3 @@ if __name__ == "__main__":
         sigint_count = 0
 
     print("Processing complete.")
-
