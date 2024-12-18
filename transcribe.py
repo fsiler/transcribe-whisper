@@ -56,6 +56,10 @@ def copy_mod_access_times(src, dest):
     st_info = os.stat(src)
     os.utime(dest, (st_info.st_atime, st_info.st_mtime))
 
+def is_program_available(program):
+    """Check if a program is available on the system."""
+    return shutil.which(program) is not None
+
 def copy_xattrs_and_tags(src, dest):
     # Only perform xattr and tag copying on macOS (Darwin)
     if platform.system() == 'Darwin':
@@ -70,13 +74,16 @@ def copy_xattrs_and_tags(src, dest):
         except subprocess.CalledProcessError as e:
             print(f"Error copying xattrs from {src} to {dest}: {e}")
 
-        # Copy Finder tags (stored in extended attributes)
-        try:
-            tags = subprocess.check_output(['tag', '-Nl', src])
-            subprocess.check_call(['tag', '-a',  tags, dest])
-        except subprocess.CalledProcessError:
-            print(f"No Finder tags to copy from {src}.")
-
+        # Check if the `tag` program is available before attempting to copy Finder tags.
+        if is_program_available('tag'):
+            try:
+                tags = subprocess.check_output(['tag', '-Nl', src]).decode().strip()
+                if tags:
+                    subprocess.check_call(['tag', '-a', tags, dest])
+            except subprocess.CalledProcessError as e:
+                print(f"Error copying Finder tags from {src} to {dest}: {e}")
+        else:
+            print("The `tag` program is not available. Skipping Finder tag copying.")
 
 def transcribe(orig_fn, preserve_original):
     transcription_start_time = time.time()
