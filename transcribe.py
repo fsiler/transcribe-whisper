@@ -86,6 +86,11 @@ def copy_xattrs_and_tags(src, dest):
             print("The `tag` program is not available. Skipping Finder tag copying.")
 
 def transcribe(orig_fn, preserve_original):
+    # Check if the file exists before proceeding.
+    if not os.path.exists(orig_fn):
+        print(f"File not found: {orig_fn}. Skipping.")
+        return
+
     transcription_start_time = time.time()
     print(f"=== examining {orig_fn}: ", end="", flush=True)
     streams = get_file_streams(orig_fn)
