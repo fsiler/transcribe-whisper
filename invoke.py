@@ -4,6 +4,7 @@ import signal
 import sys
 import subprocess
 import re
+from pathlib import Path  # Importing Path from pathlib
 from transcribe import transcribe
 
 # Global state for signal handling
@@ -111,27 +112,58 @@ def analyze_audio_levels(file_path):
        print(f"An error occurred while analyzing {file_path}: {e}")
        yield False
 
-def has_subtitle_stream(file_path):
+def has_stream(file_path, stream_type):
    """
-   Check if a media file has a subtitle stream using ffprobe.
+   Check if a media file has an audio stream using ffprobe.
 
    :param file_path: Path to the media file.
 
-   :return: Boolean indicating whether a subtitle stream exists.
+   :return: Boolean indicating whether an audio stream exists.
    """
 
    command = [
-       'ffprobe', '-v', 'error', '-select_streams', 's',
-       '-show_entries', 'stream=index', '-of', 'default=noprint_wrappers=1:nokey=1',
+       'ffprobe', '-v', 'error', '-select_streams', stream_type,
+       '-show_entries', 'stream=index',
+       '-of', 'default=noprint_wrappers=1:nokey=1',
        file_path
    ]
 
    try:
        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-       return bool(result.stdout.strip())  # Returns True if there is any output (i.e., subtitle stream exists)
+       return bool(result.stdout.strip())  # Returns True if there is any output (i.e., audio stream exists)
    except Exception as e:
-       print(f"An error occurred while checking subtitles in {file_path}: {e}")
+       print(f"An error occurred while checking audio streams in {file_path}: {e}")
        return False
+
+def has_audio_stream(file_path):
+    return has_stream(file_path, 'a')
+
+def has_subtitle_stream(file_path):
+    return has_stream(file_path, 's')
+
+def add_null_subtitle_stream(file_path):
+   """
+   Add a null subtitle stream to a media file using FFmpeg.
+
+   :param file_path: Path to the media file.
+   :return: None
+   """
+   output_file = f"{Path(file_path).stem}_with_null_subs{Path(file_path).suffix}"
+
+   command = [
+       'ffmpeg', '-i', file_path,
+       '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
+       '-c:v', 'copy', '-c:a', 'copy',
+       '-c:s', 'mov_text',
+       '-metadata:s:s:0', 'language=eng',
+       output_file
+   ]
+
+   try:
+       subprocess.run(command, check=True)
+       print(f"Added null subtitle stream to {file_path}. Output saved as {output_file}.")
+   except subprocess.CalledProcessError as e:
+       print(f"Failed to add null subtitle stream to {file_path}: {e}")
 
 def process_files():
    """
@@ -160,9 +192,15 @@ def process_files():
            print(f"Skipping {file}: already has a subtitle stream.")
            continue
 
+       # Check if there are audio streams before checking levels
+       if not has_audio_stream(file):
+           print(f"Skipping {file}: no audio streams found.")
+           continue
+
        # Check audio levels before transcribing
        if not next(analyze_audio_levels(file)):
-           print(f"Skipping {file}: audio levels are insufficient for transcription.")
+           print(f"Audio levels are insufficient for transcription.")
+#           add_null_subtitle_stream(file)
            continue
 
        transcribe(file)
