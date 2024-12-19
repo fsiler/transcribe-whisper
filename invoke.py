@@ -1,6 +1,34 @@
 #!/usr/bin/env python
 import os
+import signal
+import sys
 from transcribe import transcribe
+
+# Global state for signal handling
+stop_after_current = False
+immediate_stop = False
+
+def handle_sighup(signum, frame):
+    """
+    Signal handler for SIGHUP: Stop after the current file.
+    """
+    global stop_after_current
+    print("\nSIGHUP received: Will stop after the current file.")
+    stop_after_current = True
+
+def handle_sigint(signum, frame):
+    """
+    Signal handler for SIGINT:
+    - First SIGINT stops after the current file.
+    - Second SIGINT stops immediately.
+    """
+    global stop_after_current, immediate_stop
+    if not stop_after_current:
+        print("\nSIGINT received: Will stop after the current file.")
+        stop_after_current = True
+    else:
+        print("\nSIGINT received again: Stopping immediately.")
+        immediate_stop = True
 
 def get_all_files(path="~/Movies"):
     """
@@ -40,17 +68,36 @@ def sort_files_by_size(files):
 
 # Example usage
 if __name__ == "__main__":
-    # Step 1: Get all files in ~/Movies
-    all_files = get_all_files()
+    # Register signal handlers
+    signal.signal(signal.SIGHUP, handle_sighup)
+    signal.signal(signal.SIGINT, handle_sigint)
 
-    # Step 2: Filter files by multiple keywords (e.g., "action", "comedy")
-    filtered_files = filter_files_by_keywords(all_files, ["rohn", "huberman","buffett","phil town","value","brian tracy","napoleon"])
+    try:
+        # Step 1: Get all files in ~/Movies
+        all_files = get_all_files()
 
-    # Step 3: Sort filtered files by size
-    sorted_filtered_files = sort_files_by_size(filtered_files)
+        # Step 2: Filter files by multiple keywords (e.g., "action", "comedy")
+        filtered_files = filter_files_by_keywords(all_files, ["rohn", "huberman", "buffett", "phil town", "value", "brian tracy", "napoleon hill", "sapolsky", "stanford", "uiuc", "harvard", "architecture", "akers", "lean","llm"])
 
-    # Output the results
-    print("Files sorted by size:")
-    for file in sorted_filtered_files:
-        transcribe(file)
+        # Step 3: Sort filtered files by size
+        sorted_filtered_files = sort_files_by_size(filtered_files)
 
+        # Process each file
+        print("Files sorted by size:")
+        for file in sorted_filtered_files:
+            if immediate_stop:
+                print("\nImmediate stop triggered. Exiting.")
+                sys.exit(0)
+
+            print(f"Processing: {file}")
+            transcribe(file)
+
+            if stop_after_current:
+                print("\nStopping after current file as requested.")
+                break
+
+    except KeyboardInterrupt:
+        print("\nProgram interrupted.")
+
+    finally:
+        print("Exiting program.")
