@@ -2,29 +2,30 @@
 import os
 import signal
 import sys
-from functools import partial
 from transcribe import transcribe
 
 # Global state for signal handling
-stop_after_current = False
-immediate_stop = False
+STOP_AFTER_CURRENT = False
 
-def signal_handler(signum, frame, confirm_exit=False):
+def signal_handler_first():
     """
-    Handles SIGINT signals.
-    - First SIGINT: Stops after the current file.
-    - Second SIGINT: Stops immediately.
+    Handles the first SIGINT signal.
+    Sets the program to stop after processing the current file.
     """
-    global stop_after_current, immediate_stop
+    global STOP_AFTER_CURRENT
 
-    if confirm_exit:
-        print("\nSecond SIGINT received: Stopping immediately.")
-        immediate_stop = True
-    else:
-        print("\nFirst SIGINT received: Will stop after the current file.")
-        stop_after_current = True
-        # Update the signal handler to require confirmation for immediate exit
-        signal.signal(signal.SIGINT, partial(signal_handler, confirm_exit=True))
+    print("\nFirst SIGINT received: Will stop after the current file.")
+    STOP_AFTER_CURRENT = True
+    # Update the signal handler to handle the second SIGINT
+    signal.signal(signal.SIGINT, signal_handler_second)
+
+def signal_handler_second():
+    """
+    Handles the second SIGINT signal.
+    Stops the program immediately.
+    """
+    print("\nSecond SIGINT received: Stopping immediately.")
+    sys.exit()
 
 def get_all_files(path="~/Movies"):
     """
@@ -68,21 +69,19 @@ def load_keywords_from_file(file_path="keywords.txt"):
     :param file_path: Path to the text file containing keywords.
     :return: List of keywords.
     """
-    with open(file_path, "r") as f:
+    with open(file_path, "r", encoding="utf-8") as f:
         return [line.strip() for line in f if line.strip()]  # Remove empty lines and whitespace
 
 def process_files():
     """
     Main function to process files with signal handling.
     """
-    global stop_after_current, immediate_stop
-
     # Step 1: Get all files in ~/Movies
     all_files = get_all_files()
 
     # Step 2: Load keywords from a text file
     keywords = load_keywords_from_file("keywords.txt")
-    
+
     if not keywords:
         print("No keywords found in 'keywords.txt'. Exiting.")
         sys.exit(1)
@@ -95,23 +94,19 @@ def process_files():
 
     # Process each file
     print("Files sorted by size:")
-    
-    for file in sorted_filtered_files:
-        if immediate_stop:
-            print("\nImmediate stop triggered. Exiting.")
-            sys.exit(0)
 
+    for file in sorted_filtered_files:
         print(f"Processing: {file}")
         transcribe(file)
 
-        if stop_after_current:
+        if STOP_AFTER_CURRENT:
             print("\nStopping after current file as requested.")
             break
 
 if __name__ == "__main__":
     # Register initial signal handler for SIGINT
-    signal.signal(signal.SIGINT, partial(signal_handler, confirm_exit=False))
-    
+    signal.signal(signal.SIGINT, signal_handler_first)
+
     try:
         process_files()
     except KeyboardInterrupt:
