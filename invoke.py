@@ -2,33 +2,29 @@
 import os
 import signal
 import sys
+from functools import partial
 from transcribe import transcribe
 
 # Global state for signal handling
 stop_after_current = False
 immediate_stop = False
 
-def handle_sighup(signum, frame):
+def signal_handler(signum, frame, confirm_exit=False):
     """
-    Signal handler for SIGHUP: Stop after the current file.
-    """
-    global stop_after_current
-    print("\nSIGHUP received: Will stop after the current file.")
-    stop_after_current = True
-
-def handle_sigint(signum, frame):
-    """
-    Signal handler for SIGINT:
-    - First SIGINT stops after the current file.
-    - Second SIGINT stops immediately.
+    Handles SIGINT signals.
+    - First SIGINT: Stops after the current file.
+    - Second SIGINT: Stops immediately.
     """
     global stop_after_current, immediate_stop
-    if not stop_after_current:
-        print("\nSIGINT received: Will stop after the current file.")
-        stop_after_current = True
-    else:
-        print("\nSIGINT received again: Stopping immediately.")
+
+    if confirm_exit:
+        print("\nSecond SIGINT received: Stopping immediately.")
         immediate_stop = True
+    else:
+        print("\nFirst SIGINT received: Will stop after the current file.")
+        stop_after_current = True
+        # Update the signal handler to require confirmation for immediate exit
+        signal.signal(signal.SIGINT, partial(signal_handler, confirm_exit=True))
 
 def get_all_files(path="~/Movies"):
     """
@@ -66,38 +62,57 @@ def sort_files_by_size(files):
     for file_path, _ in sorted_files:
         yield file_path
 
-# Example usage
+def load_keywords_from_file(file_path="keywords.txt"):
+    """
+    Load keywords from a text file. Each line contains one keyword.
+    :param file_path: Path to the text file containing keywords.
+    :return: List of keywords.
+    """
+    with open(file_path, "r") as f:
+        return [line.strip() for line in f if line.strip()]  # Remove empty lines and whitespace
+
+def process_files():
+    """
+    Main function to process files with signal handling.
+    """
+    global stop_after_current, immediate_stop
+
+    # Step 1: Get all files in ~/Movies
+    all_files = get_all_files()
+
+    # Step 2: Load keywords from a text file
+    keywords = load_keywords_from_file("keywords.txt")
+    
+    if not keywords:
+        print("No keywords found in 'keywords.txt'. Exiting.")
+        sys.exit(1)
+
+    # Step 3: Filter files by loaded keywords
+    filtered_files = filter_files_by_keywords(all_files, keywords)
+
+    # Step 4: Sort filtered files by size
+    sorted_filtered_files = sort_files_by_size(filtered_files)
+
+    # Process each file
+    print("Files sorted by size:")
+    
+    for file in sorted_filtered_files:
+        if immediate_stop:
+            print("\nImmediate stop triggered. Exiting.")
+            sys.exit(0)
+
+        print(f"Processing: {file}")
+        transcribe(file)
+
+        if stop_after_current:
+            print("\nStopping after current file as requested.")
+            break
+
 if __name__ == "__main__":
-    # Register signal handlers
-    signal.signal(signal.SIGHUP, handle_sighup)
-    signal.signal(signal.SIGINT, handle_sigint)
-
+    # Register initial signal handler for SIGINT
+    signal.signal(signal.SIGINT, partial(signal_handler, confirm_exit=False))
+    
     try:
-        # Step 1: Get all files in ~/Movies
-        all_files = get_all_files()
-
-        # Step 2: Filter files by multiple keywords (e.g., "action", "comedy")
-        filtered_files = filter_files_by_keywords(all_files, ["rohn", "huberman", "buffett", "phil town", "value", "brian tracy", "napoleon hill", "sapolsky", "stanford", "uiuc", "harvard", "architecture", "akers", "lean","llm"])
-
-        # Step 3: Sort filtered files by size
-        sorted_filtered_files = sort_files_by_size(filtered_files)
-
-        # Process each file
-        print("Files sorted by size:")
-        for file in sorted_filtered_files:
-            if immediate_stop:
-                print("\nImmediate stop triggered. Exiting.")
-                sys.exit(0)
-
-            print(f"Processing: {file}")
-            transcribe(file)
-
-            if stop_after_current:
-                print("\nStopping after current file as requested.")
-                break
-
+        process_files()
     except KeyboardInterrupt:
         print("\nProgram interrupted.")
-
-    finally:
-        print("Exiting program.")
