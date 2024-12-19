@@ -7,7 +7,7 @@ from transcribe import transcribe
 # Global state for signal handling
 STOP_AFTER_CURRENT = False
 
-def signal_handler_first():
+def signal_handler_first(signum, frame):
     """
     Handles the first SIGINT signal.
     Sets the program to stop after processing the current file.
@@ -19,7 +19,7 @@ def signal_handler_first():
     # Update the signal handler to handle the second SIGINT
     signal.signal(signal.SIGINT, signal_handler_second)
 
-def signal_handler_second():
+def signal_handler_second(signum, frame):
     """
     Handles the second SIGINT signal.
     Stops the program immediately.

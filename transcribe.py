@@ -93,7 +93,11 @@ def transcribe(orig_fn, preserve_original=False):
 
     transcription_start_time = time.time()
     print(f"=== examining {orig_fn}: ", end="", flush=True)
-    streams = get_file_streams(orig_fn)
+    try:
+        streams = get_file_streams(orig_fn)
+    except KeyError:
+        print(f"file doesn't have streams.")
+        return
 
     if has_subtitle_stream(streams):
         print(f"file has subtitle stream, skipping.")
