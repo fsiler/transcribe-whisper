@@ -2,6 +2,8 @@
 import os
 import signal
 import sys
+import subprocess
+import re
 from transcribe import transcribe
 
 # Global state for signal handling
@@ -72,38 +74,108 @@ def load_keywords_from_file(file_path="keywords.txt"):
     with open(file_path, "r", encoding="utf-8") as f:
         return [line.strip() for line in f if line.strip()]  # Remove empty lines and whitespace
 
-def process_files():
+def analyze_audio_levels(file_path):
     """
-    Main function to process files with signal handling.
+    Analyze audio levels of a media file and yield whether it is suitable for transcription.
+
+    :param file_path: Path to the media file.
+
+    :yield: Boolean indicating whether the audio level is sufficient for transcription.
     """
-    # Step 1: Get all files in ~/Movies
-    all_files = get_all_files()
 
-    # Step 2: Load keywords from a text file
-    keywords = load_keywords_from_file("keywords.txt")
-
-    if not keywords:
-        print("No keywords found in 'keywords.txt'. Exiting.")
-        sys.exit(1)
-
-    # Step 3: Filter files by loaded keywords
-    filtered_files = filter_files_by_keywords(all_files, keywords)
-
-    # Step 4: Sort filtered files by size
-    sorted_filtered_files = sort_files_by_size(filtered_files)
-
-    for file in sorted_filtered_files:
-        transcribe(file)
-
-        if STOP_AFTER_CURRENT:
-            print("\nStopping after current file as requested.")
-            break
-
-if __name__ == "__main__":
-    # Register initial signal handler for SIGINT
-    signal.signal(signal.SIGINT, signal_handler_first)
+    command = [
+        'ffmpeg', '-i', file_path,
+        '-filter:a', 'volumedetect',
+        '-f', 'null', '/dev/null'
+    ]
 
     try:
-        process_files()
-    except KeyboardInterrupt:
-        print("\nProgram interrupted.")
+       result = subprocess.run(command, stderr=subprocess.PIPE, text=True)
+       output = result.stderr
+
+       max_volume_pattern = r"max_volume:\s*(-?\d+\.\d+) dB"
+       mean_volume_pattern = r"mean_volume:\s*(-?\d+\.\d+) dB"
+
+       max_volume = re.search(max_volume_pattern, output)
+       mean_volume = re.search(mean_volume_pattern, output)
+
+       if max_volume and mean_volume:
+           mean_db = float(mean_volume.group(1))
+           # Yield True if audio level is sufficient (mean above -30 dB)
+           yield mean_db >= -30
+       else:
+           print(f"Could not find volume statistics for {file_path}.")
+           yield False
+
+    except Exception as e:
+       print(f"An error occurred while analyzing {file_path}: {e}")
+       yield False
+
+def has_subtitle_stream(file_path):
+   """
+   Check if a media file has a subtitle stream using ffprobe.
+
+   :param file_path: Path to the media file.
+
+   :return: Boolean indicating whether a subtitle stream exists.
+   """
+
+   command = [
+       'ffprobe', '-v', 'error', '-select_streams', 's',
+       '-show_entries', 'stream=index', '-of', 'default=noprint_wrappers=1:nokey=1',
+       file_path
+   ]
+
+   try:
+       result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+       return bool(result.stdout.strip())  # Returns True if there is any output (i.e., subtitle stream exists)
+   except Exception as e:
+       print(f"An error occurred while checking subtitles in {file_path}: {e}")
+       return False
+
+def process_files():
+   """
+   Main function to process files with signal handling.
+   """
+
+   # Step 1: Get all files in ~/Movies
+   all_files = get_all_files()
+
+   # Step 2: Load keywords from a text file
+   keywords = load_keywords_from_file("keywords.txt")
+
+   if not keywords:
+       print("No keywords found in 'keywords.txt'. Exiting.")
+       sys.exit(1)
+
+   # Step 3: Filter files by loaded keywords
+   filtered_files = filter_files_by_keywords(all_files, keywords)
+
+   # Step 4: Sort filtered files by size
+   sorted_filtered_files = sort_files_by_size(filtered_files)
+
+   for file in sorted_filtered_files:
+       # Check if the file already has a subtitle stream
+       if has_subtitle_stream(file):
+           print(f"Skipping {file}: already has a subtitle stream.")
+           continue
+
+       # Check audio levels before transcribing
+       if not next(analyze_audio_levels(file)):
+           print(f"Skipping {file}: audio levels are insufficient for transcription.")
+           continue
+
+       transcribe(file)
+
+       if STOP_AFTER_CURRENT:
+           print("\nStopping after current file as requested.")
+           break
+
+if __name__ == "__main__":
+   # Register initial signal handler for SIGINT
+   signal.signal(signal.SIGINT, signal_handler_first)
+
+   try:
+       process_files()
+   except KeyboardInterrupt:
+       print("\nProgram interrupted.")
