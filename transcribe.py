@@ -85,7 +85,7 @@ def copy_xattrs_and_tags(src, dest):
         else:
             print("The `tag` program is not available. Skipping Finder tag copying.")
 
-def transcribe(orig_fn, preserve_original):
+def transcribe(orig_fn, preserve_original=False):
     # Check if the file exists before proceeding.
     if not os.path.exists(orig_fn):
         print(f"File not found: {orig_fn}. Skipping.")
