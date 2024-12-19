@@ -92,11 +92,7 @@ def process_files():
     # Step 4: Sort filtered files by size
     sorted_filtered_files = sort_files_by_size(filtered_files)
 
-    # Process each file
-    print("Files sorted by size:")
-
     for file in sorted_filtered_files:
-        print(f"Processing: {file}")
         transcribe(file)
 
         if STOP_AFTER_CURRENT:
