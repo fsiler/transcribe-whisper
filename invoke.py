@@ -73,7 +73,8 @@ def load_keywords_from_file(file_path="keywords.txt"):
     :return: List of keywords.
     """
     with open(file_path, "r", encoding="utf-8") as f:
-        return [line.strip() for line in f if line.strip()]  # Remove empty lines and whitespace
+        # Remove empty lines and whitespace
+        return [line.strip() for line in f if line.strip() and not line.startswith('#')]
 
 def analyze_audio_levels(file_path):
     """
