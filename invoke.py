@@ -45,10 +45,9 @@ def filter_files_by_keywords(files, keywords):
     :param files: Iterable of file paths.
     :param keywords: List of keywords to search for in filenames (case-insensitive).
     """
-    keywords_lower = [keyword.lower() for keyword in keywords]
     for file_path in files:
-        filename_lower = os.path.basename(file_path).lower()
-        if any(keyword in filename_lower for keyword in keywords_lower):
+        fn = os.path.basename(file_path)
+        if any(re.match(rf'(\b{keyword}|{keyword}\b)', fn, re.IGNORECASE) for keyword in keywords):
             yield file_path
 
 def sort_files_by_size(files):
