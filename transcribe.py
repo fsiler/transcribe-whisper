@@ -1,22 +1,37 @@
 #!/usr/bin/env python
-import os
-import time
-import torch
-import whisper
-import subprocess
+import argparse
 import json
+import os
+import platform
 import shutil
 import signal
+import subprocess
 import sys
 import tempfile
-import argparse
-import platform
+import time
 
 from datetime import timedelta
+from pprint   import pprint, pformat
+
+import torch
+import whisper
 
 # Global flags
 continue_processing = True
 sigint_count = 0
+
+def time_it(func):
+    """
+    A decorator that times how long a function takes to execute.
+    """
+    def wrapper(*args, **kwargs):
+        start_time = time.time()  # Record the start time
+        result = func(*args, **kwargs)  # Call the original function
+        end_time = time.time()  # Record the end time
+        elapsed_time = end_time - start_time  # Calculate elapsed time
+        print(f"Function '{func.__name__}' executed in {elapsed_time:.6f} seconds. Args: {args}")
+        return result  # Return the result of the original function
+    return wrapper
 
 def signal_handler(signum, frame):
     global continue_processing, sigint_count
@@ -33,22 +48,22 @@ def signal_handler(signum, frame):
             print("\nReceived second SIGINT. Exiting immediately.")
             sys.exit(0)
 
-def format_timestamp(seconds):
+def format_timestamp(seconds:int) -> str:
     td = timedelta(seconds=seconds)
     hours, remainder = divmod(td.seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{td.microseconds//1000:03d}"
 
-def get_file_streams(filename):
+def get_file_streams(filename:str) -> dict:
     cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_streams', filename]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    data = json.loads(result.stdout)
+    stdout = subprocess.check_output(cmd)
+    data = json.loads(stdout)
     return data['streams']
 
-def has_subtitle_stream(streams):
+def has_subtitle_stream(streams:dict) -> bool:
     return any(stream['codec_type'] == 'subtitle' for stream in streams)
 
-def has_only_audio_and_subtitles(streams):
+def has_only_audio_and_subtitles(streams:dict) ->bool:
     return all(stream['codec_type'] in ['audio', 'subtitle'] for stream in streams)
 
 def copy_mod_access_times(src, dest):
@@ -85,47 +100,28 @@ def copy_xattrs_and_tags(src, dest):
         else:
             print("The `tag` program is not available. Skipping Finder tag copying.")
 
-def transcribe(orig_fn, preserve_original=False):
+def transcribe(orig_fn:str, preserve_original:bool=False) -> str:
+    """returns muxed filename"""
     # Check if the file exists before proceeding.
     if not os.path.exists(orig_fn):
         print(f"File not found: {orig_fn}. Skipping.")
-        return
+        return None
 
-    transcription_start_time = time.time()
     print(f"=== examining {orig_fn}: ", end="", flush=True)
     try:
         streams = get_file_streams(orig_fn)
     except KeyError:
-        print(f"file doesn't have streams.")
-        return
+        print("file doesn't have streams.")
+        return orig_fn
 
     if has_subtitle_stream(streams):
-        print(f"file has subtitle stream, skipping.")
-        return
+        print("file has subtitle stream, skipping.")
+        return orig_fn
+
+    srt_content = get_srt(orig_fn)
 
     output_ext = '.mka' if has_only_audio_and_subtitles(streams) else '.mkv'
     dest_fn = os.path.splitext(orig_fn)[0] + output_ext
-
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    fp16 = False if device == 'cpu' else True
-
-    print("loading model...", end="", flush=True)
-    model = whisper.load_model("turbo").to(device)
-    print("done.", flush=True)
-
-    print(f"    opening {orig_fn}", flush=True)
-
-    audio = whisper.load_audio(orig_fn)
-    audio_length = len(audio) / whisper.audio.SAMPLE_RATE
-    print(f"    found audio length {format_timestamp(audio_length)}", flush=True)
-
-    result = model.transcribe(orig_fn, word_timestamps=True, fp16=fp16)
-
-    srt_content = ""
-    for i, segment in enumerate(result["segments"]):
-        start_time = format_timestamp(segment['start'])
-        end_time = format_timestamp(segment['end'])
-        srt_content += f"{i+1}\n{start_time} --> {end_time}\n{segment['text'].strip()}\n\n"
 
     with tempfile.TemporaryDirectory() as temp_dir:
         working_fn = os.path.join(temp_dir, 'temp_output.mkv')
@@ -156,12 +152,28 @@ def transcribe(orig_fn, preserve_original=False):
         os.remove(orig_fn)
         print("done.")
 
-    transcription_end_time = time.time()
-    transcription_time = transcription_end_time - transcription_start_time
-    ratio = audio_length / transcription_time
+    return dest_fn
 
-    print(f"Output: {dest_fn}")
-    print(f"Length: {format_timestamp(audio_length)}, Transcription time: {format_timestamp(transcription_time)} ({ratio:.2f}x speed)")
+@time_it
+def get_srt(fn:str, model:str="turbo") -> str:
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    fp16 = False if device == 'cpu' else True
+
+    print("loading model...", end="", flush=True)
+    model = whisper.load_model(model).to(device)
+    print("done.", flush=True)
+
+    print(f"    opening {fn}", flush=True)
+
+    result = model.transcribe(fn, word_timestamps=True, fp16=fp16)
+
+    srt_content = ""
+    for i, segment in enumerate(result["segments"]):
+        start_time = format_timestamp(segment['start'])
+        end_time = format_timestamp(segment['end'])
+        srt_content += f"{i+1}\n{start_time} --> {end_time}\n{segment['text'].strip()}\n\n"
+
+    return srt_content
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Transcribe audio files and optionally preserve the original files.")
@@ -182,7 +194,8 @@ if __name__ == "__main__":
         if not continue_processing:
             print("Stopping due to received signal.")
             break
-        transcribe(orig_fn, args.preserve_original)
+
+        new_fn = transcribe(orig_fn, args.preserve_original)
         # Reset SIGINT count after each file
         sigint_count = 0
 
