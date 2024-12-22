@@ -5,13 +5,13 @@ import os
 import platform
 import shutil
 import signal
-import subprocess
 import sys
 import tempfile
 import time
 
-from datetime import timedelta
-from pprint   import pprint, pformat
+from datetime   import timedelta
+from pprint     import pprint, pformat
+from subprocess import check_call, check_output, CalledProcessError
 
 import torch
 import whisper
@@ -56,7 +56,7 @@ def format_timestamp(seconds:int) -> str:
 
 def get_file_streams(filename:str) -> dict:
     cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_streams', filename]
-    stdout = subprocess.check_output(cmd)
+    stdout = check_output(cmd)
     data = json.loads(stdout)
     return data['streams']
 
@@ -80,22 +80,22 @@ def copy_xattrs_and_tags(src, dest):
     if platform.system() == 'Darwin':
         # List all extended attributes
         try:
-            attrs = subprocess.check_output(['xattr', src]).decode().split()
+            attrs = check_output(['xattr', src]).decode().split()
             for attr in attrs:
                 # Read each attribute from the source file
-                value = subprocess.check_output(['xattr', '-px', attr, src])
+                value = check_output(['xattr', '-px', attr, src])
                 # Write the attribute to the destination file
-                subprocess.check_call(['xattr', '-wx', attr, value, dest])
-        except subprocess.CalledProcessError as e:
+                check_call(['xattr', '-wx', attr, value, dest])
+        except CalledProcessError as e:
             print(f"Error copying xattrs from {src} to {dest}: {e}")
 
         # Check if the `tag` program is available before attempting to copy Finder tags.
         if is_program_available('tag'):
             try:
-                tags = subprocess.check_output(['tag', '-Nl', src]).decode().strip()
+                tags = check_output(['tag', '-Nl', src]).decode().strip()
                 if tags:
-                    subprocess.check_call(['tag', '-a', tags, dest])
-            except subprocess.CalledProcessError as e:
+                    check_call(['tag', '-a', tags, dest])
+            except CalledProcessError as e:
                 print(f"Error copying Finder tags from {src} to {dest}: {e}")
         else:
             print("The `tag` program is not available. Skipping Finder tag copying.")
@@ -136,7 +136,7 @@ def transcribe(orig_fn:str, preserve_original:bool=False) -> str:
             working_fn
         ]
 
-        subprocess.check_output(cmd, input=srt_content.encode('utf-8'))
+        check_output(cmd, input=srt_content.encode('utf-8'))
 
         # Copy xattrs and tags from orig_fn to working_fn only on macOS
         copy_mod_access_times(orig_fn, working_fn)
