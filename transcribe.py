@@ -127,7 +127,9 @@ def transcribe(orig_fn:str, preserve_original:bool=False) -> str:
         working_fn = os.path.join(temp_dir, 'temp_output.mkv')
 
         cmd = [
-            'ffmpeg', '-i', orig_fn,
+            'ffmpeg',
+            '-loglevel', 'error', '-stats', '-hide_banner',
+            '-i', orig_fn,
             '-i', '-',
             '-map_metadata', '0',
             '-map', '0', '-map', '1',
@@ -142,13 +144,13 @@ def transcribe(orig_fn:str, preserve_original:bool=False) -> str:
         copy_mod_access_times(orig_fn, working_fn)
 
         # Move working file to destination
-        print(f"Moving {working_fn} to {dest_fn}...", end="", flush=True)
+        print(f"    Moving {working_fn} to {dest_fn}...", end="", flush=True)
         shutil.move(working_fn, dest_fn)
         print("done.")
 
     if orig_fn != dest_fn and not preserve_original:
         copy_xattrs_and_tags(orig_fn, working_fn)
-        print(f"Removing original file {orig_fn}...", end="", flush=True)
+        print(f"    Removing original file {orig_fn}...", end="", flush=True)
         os.remove(orig_fn)
         print("done.")
 
