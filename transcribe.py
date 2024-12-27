@@ -29,7 +29,7 @@ def time_it(func):
         result = func(*args, **kwargs)  # Call the original function
         end_time = time.time()  # Record the end time
         elapsed_time = end_time - start_time  # Calculate elapsed time
-        print(f"Function '{func.__name__}' executed in {elapsed_time:.6f} seconds. Args: {args}")
+        print(f"Function '{func.__name__}' executed in {format_timestamp(elapsed_time)}. Args: {args}")
         return result  # Return the result of the original function
     return wrapper
 
@@ -52,7 +52,7 @@ def format_timestamp(seconds:int) -> str:
     td = timedelta(seconds=seconds)
     hours, remainder = divmod(td.seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{td.microseconds//1000:03d}"
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{td.microseconds//10_000:02d}"
 
 def get_file_streams(filename:str) -> dict:
     cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_streams', filename]
