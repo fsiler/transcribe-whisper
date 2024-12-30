@@ -119,6 +119,7 @@ def transcribe(orig_fn:str, preserve_original:bool=False, model=None) -> str:
         print("file has subtitle stream, skipping.")
         return orig_fn
 
+    print("")
     srt_content = get_srt(orig_fn, model=model)
 
     output_ext = '.mka' if has_only_audio_and_subtitles(streams) else '.mkv'
