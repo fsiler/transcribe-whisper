@@ -101,7 +101,7 @@ def copy_xattrs_and_tags(src:str, dest:str):
         else:
             print("The `tag` program is not available. Skipping Finder tag copying.")
 
-def transcribe(orig_fn:str, preserve_original:bool=False) -> str:
+def transcribe(orig_fn:str, preserve_original:bool=False, model=None) -> str:
     """returns muxed filename"""
     # Check if the file exists before proceeding.
     if not os.path.exists(orig_fn):
@@ -119,7 +119,7 @@ def transcribe(orig_fn:str, preserve_original:bool=False) -> str:
         print("file has subtitle stream, skipping.")
         return orig_fn
 
-    srt_content = get_srt(orig_fn)
+    srt_content = get_srt(orig_fn, model=model)
 
     output_ext = '.mka' if has_only_audio_and_subtitles(streams) else '.mkv'
     dest_fn = os.path.splitext(orig_fn)[0] + output_ext
@@ -158,16 +158,17 @@ def transcribe(orig_fn:str, preserve_original:bool=False) -> str:
     return dest_fn
 
 @time_it
-def get_srt(fn:str, model:str="turbo") -> str:
+def get_srt(fn:str, model_type:str = "turbo", model = None) -> str:
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    fp16 = False if device == 'cpu' else True
 
-    print("loading model...", end="", flush=True)
-    model = whisper.load_model(model).to(device)
-    print("done.", flush=True)
+    if not model:
+        print("loading model...", end="", flush=True)
+        model = whisper.load_model(model_type).to(device)
+        print("done.", flush=True)
 
     print(f"    opening {fn}", flush=True)
 
+    fp16 = False if device == 'cpu' else True
     result = model.transcribe(fn, word_timestamps=True, fp16=fp16)
 
     srt_content = ""

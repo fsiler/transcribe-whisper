@@ -7,6 +7,8 @@ import re
 from pathlib import Path  # Importing Path from pathlib
 from pprint  import pformat
 
+import torch
+import whisper
 from transcribe import transcribe
 
 type FileMatch = (str, re.Match)
@@ -51,11 +53,16 @@ def filter_files_by_keywords(files: list[str], keywords: set[str]) -> FileMatch:
     :param keywords: Set of keywords to search for in filenames (case-insensitive).
     """
     # Create a single regex pattern from all keywords
-    keyword_pattern = re.compile(rf'\b({"|".join(re.escape(keyword) for keyword in keywords)})\b', re.IGNORECASE)
+
+    keywords_piped = f'({"|".join(re.escape(keyword) for keyword in sorted(keywords))})'
+    keyword_pattern = rf'(\b{keywords_piped}|{keywords_piped}\b)'
+    print(f"matching pattern: {keyword_pattern}")
+
+    keyword_matcher = re.compile(keyword_pattern, re.IGNORECASE)
 
     for file_path in files:
         fn = os.path.basename(file_path)
-        if matcher := keyword_pattern.search(fn):
+        if matcher := keyword_matcher.search(fn):
             yield (file_path, matcher)
 
 def sort_files_by_size(files: list[FileMatch]) -> list[FileMatch]:
@@ -176,56 +183,61 @@ def add_null_subtitle_stream(file_path: str):
    except subprocess.CalledProcessError as e:
        print(f"Failed to add null subtitle stream to {file_path}: {e}")
 
-def process_files():
-   """
-   Main function to process files with signal handling.
-   """
+def process_files(model_type:str="turbo"):
+    """
+    Main function to process files with signal handling.
+    """
 
-   # Step 1: Get all files in ~/Movies
-   all_files = get_all_files()
+    print("loading model...", end="", flush=True)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model = whisper.load_model(model_type).to(device)
+    print("done.", flush=True)
 
-   # Step 2: Load keywords from a text file
-   keywords = load_keywords_from_file("keywords.txt")
+    # Step 1: Get all files in ~/Movies
+    all_files = get_all_files()
 
-   if not keywords:
-       print("No keywords found in 'keywords.txt'. Exiting.")
-       sys.exit(1)
+    # Step 2: Load keywords from a text file
+    keywords = load_keywords_from_file("keywords.txt")
 
-   # Step 3: Filter files by loaded keywords
-   filtered_files = filter_files_by_keywords(all_files, keywords)
+    if not keywords:
+        print("No keywords found in 'keywords.txt'. Exiting.")
+        sys.exit(1)
 
-   # Step 4: Sort filtered files by size
-   sorted_filtered_files = sort_files_by_size(filtered_files)
+    # Step 3: Filter files by loaded keywords
+    filtered_files = filter_files_by_keywords(all_files, keywords)
 
-   for file, matcher in sorted_filtered_files:
-       # Check if the file already has a subtitle stream
-       if has_subtitle_stream(file):
-           print(f"Skipping {file}: already has a subtitle stream.")
-           continue
+    # Step 4: Sort filtered files by size
+    sorted_filtered_files = sort_files_by_size(filtered_files)
 
-       # Check if there are audio streams before checking levels
-       if not has_audio_stream(file):
-           print(f"Skipping {file}: no audio streams found.")
-           continue
+    for file, matcher in sorted_filtered_files:
+        # Check if the file already has a subtitle stream
+        if has_subtitle_stream(file):
+            print(f"Skipping {file}: already has a subtitle stream.")
+            continue
 
-       # Check audio levels before transcribing
-       if not next(analyze_audio_levels(file)):
-           print(f"Audio levels are insufficient for transcription.")
-#           add_null_subtitle_stream(file)
-           continue
+        # Check if there are audio streams before checking levels
+        if not has_audio_stream(file):
+            print(f"Skipping {file}: no audio streams found.")
+            continue
 
-       print(f"=== found {file}, matches '{matcher[0]}'")
-       transcribe(file)
+#        # Check audio levels before transcribing
+#        if not analyze_audio_levels(file):
+#            print(f"Audio levels are insufficient for transcription.")
+##            add_null_subtitle_stream(file)
+#            continue
 
-       if STOP_AFTER_CURRENT:
-           print("\nStopping after current file as requested.")
-           break
+        print(f"=== found {file}, matches '{matcher[0]}'")
+        transcribe(file, model=model)
+
+        if STOP_AFTER_CURRENT:
+            print("\nStopping after current file as requested.")
+            break
 
 if __name__ == "__main__":
-   # Register initial signal handler for SIGINT
-   signal.signal(signal.SIGINT, signal_handler_first)
+    # Register initial signal handler for SIGINT
+    signal.signal(signal.SIGINT, signal_handler_first)
 
-   try:
-       process_files()
-   except KeyboardInterrupt:
-       print("\nProgram interrupted.")
+    try:
+        process_files()
+    except KeyboardInterrupt:
+        print("\nProgram interrupted.")
