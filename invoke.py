@@ -14,7 +14,7 @@ type FileMatch = (str, re.Match)
 # Global state for signal handling
 STOP_AFTER_CURRENT = False
 
-def signal_handler_first(signum, frame):
+def signal_handler_first(signum, frame) -> None:
     """
     Handles the first SIGINT signal.
     Sets the program to stop after processing the current file.
@@ -26,7 +26,7 @@ def signal_handler_first(signum, frame):
     # Update the signal handler to handle the second SIGINT
     signal.signal(signal.SIGINT, signal_handler_second)
 
-def signal_handler_second(signum, frame):
+def signal_handler_second(signum, frame) -> None:
     """
     Handles the second SIGINT signal.
     Stops the program immediately.
@@ -80,7 +80,7 @@ def load_keywords_from_file(file_path:str="keywords.txt"):
         # Remove empty lines and whitespace
         return {line.strip() for line in f if line.strip() and not line.startswith('#')}
 
-def analyze_audio_levels(file_path:FileMatch) -> bool:
+def analyze_audio_levels(file_path:str) -> bool:
     """
     Analyze audio levels of a media file and yield whether it is suitable for transcription.
 
@@ -90,7 +90,7 @@ def analyze_audio_levels(file_path:FileMatch) -> bool:
     """
 
     command = [
-        'ffmpeg', '-i', file_path[0],
+        'ffmpeg', '-i', file_path,
         '-filter:a', 'volumedetect',
         '-f', 'null', '/dev/null'
     ]
@@ -110,14 +110,14 @@ def analyze_audio_levels(file_path:FileMatch) -> bool:
            # Yield True if audio level is sufficient (mean above -30 dB)
            yield mean_db >= -30
        else:
-           print(f"Could not find volume statistics for {file_path[0]}.")
+           print(f"Could not find volume statistics for {file_path}.")
            yield False
 
     except Exception as e:
-       print(f"An error occurred while analyzing {file_path[0]}: {e}")
+       print(f"An error occurred while analyzing {file_path}: {e}")
        yield False
 
-def has_stream(file_path:FileMatch, stream_type:str) -> bool:
+def has_stream(file_path:str, stream_type:str) -> bool:
    """
    Check if a media file has an audio stream using ffprobe.
 
@@ -130,7 +130,7 @@ def has_stream(file_path:FileMatch, stream_type:str) -> bool:
        'ffprobe', '-v', 'error', '-select_streams', stream_type,
        '-show_entries', 'stream=index',
        '-of', 'default=noprint_wrappers=1:nokey=1',
-       file_path[0]
+       file_path
    ]
 
    try:
@@ -140,13 +140,13 @@ def has_stream(file_path:FileMatch, stream_type:str) -> bool:
        print(f"An error occurred while checking audio streams in {file_path[0]}: {e}")
        return False
 
-def has_audio_stream(file_path:FileMatch):
+def has_audio_stream(file_path:str) -> bool:
     return has_stream(file_path, 'a')
 
-def has_subtitle_stream(file_path):
+def has_subtitle_stream(file_path:str) -> bool:
     return has_stream(file_path, 's')
 
-def add_null_subtitle_stream(file_path):
+def add_null_subtitle_stream(file_path:str):
    """
    Add a null subtitle stream to a media file using FFmpeg.
 
@@ -191,15 +191,15 @@ def process_files():
    # Step 4: Sort filtered files by size
    sorted_filtered_files = sort_files_by_size(filtered_files)
 
-   for file in sorted_filtered_files:
+   for file, matcher in sorted_filtered_files:
        # Check if the file already has a subtitle stream
        if has_subtitle_stream(file):
-           print(f"Skipping {file[0]}: already has a subtitle stream.")
+           print(f"Skipping {file}: already has a subtitle stream.")
            continue
 
        # Check if there are audio streams before checking levels
        if not has_audio_stream(file):
-           print(f"Skipping {file[0]}: no audio streams found.")
+           print(f"Skipping {file}: no audio streams found.")
            continue
 
        # Check audio levels before transcribing
@@ -208,7 +208,7 @@ def process_files():
 #           add_null_subtitle_stream(file)
            continue
 
-       print(f"checking out {file[0]}, matches {file[1][1]}")
+       print(f"=== found {file}, matches '{matcher[1]}'")
        transcribe(file[0])
 
        if STOP_AFTER_CURRENT:
