@@ -5,7 +5,6 @@ import sys
 import subprocess
 import re
 from pathlib import Path  # Importing Path from pathlib
-from pprint  import pformat
 
 import torch
 import whisper
@@ -52,8 +51,8 @@ def filter_files_by_keywords(files: list[str], keywords: set[str]) -> FileMatch:
     :param files: Iterable of file paths.
     :param keywords: Set of keywords to search for in filenames (case-insensitive).
     """
-    # Create a single regex pattern from all keywords
 
+    # Create a single regex pattern from all keywords
     keywords_piped = f'({"|".join(re.escape(keyword) for keyword in sorted(keywords))})'
     keyword_pattern = rf'(\b{keywords_piped}|{keywords_piped}\b)'
     print(f"matching pattern: {keyword_pattern}")
@@ -93,65 +92,28 @@ def load_keywords_from_file(file_path: str = "keywords.txt"):
         # Remove empty lines and whitespace
         return {line.strip() for line in f if line.strip() and not line.startswith('#')}
 
-def analyze_audio_levels(file_path: str) -> bool:
+def has_stream(file_path: str, stream_type: str) -> bool:
     """
-    Analyze audio levels of a media file and yield whether it is suitable for transcription.
+    Check if a media file has an audio stream using ffprobe.
 
     :param file_path: Path to the media file.
 
-    :yield: Boolean indicating whether the audio level is sufficient for transcription.
+    :return: Boolean indicating whether an audio stream exists.
     """
 
     command = [
-        'ffmpeg', '-i', file_path,
-        '-filter:a', 'volumedetect',
-        '-f', 'null', '/dev/null'
+        'ffprobe', '-v', 'error', '-select_streams', stream_type,
+        '-show_entries', 'stream=index',
+        '-of', 'default=noprint_wrappers=1:nokey=1',
+        file_path
     ]
 
     try:
-       result = subprocess.run(command, stderr=subprocess.PIPE, text=True)
-       output = result.stderr
-
-       max_volume_pattern = r"max_volume:\s*(-?\d+\.\d+) dB"
-       mean_volume_pattern = r"mean_volume:\s*(-?\d+\.\d+) dB"
-
-       max_volume = re.search(max_volume_pattern, output)
-       mean_volume = re.search(mean_volume_pattern, output)
-
-       if max_volume and mean_volume:
-           mean_db = float(mean_volume.group(1))
-           # Yield True if audio level is sufficient (mean above -30 dB)
-           yield mean_db >= -30
-       else:
-           print(f"Could not find volume statistics for {file_path}.")
-           yield False
-
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        return bool(result.stdout.strip())  # Returns True if there is any output (i.e., audio stream exists)
     except Exception as e:
-       print(f"An error occurred while analyzing {file_path}: {e}")
-       yield False
-
-def has_stream(file_path: str, stream_type: str) -> bool:
-   """
-   Check if a media file has an audio stream using ffprobe.
-
-   :param file_path: Path to the media file.
-
-   :return: Boolean indicating whether an audio stream exists.
-   """
-
-   command = [
-       'ffprobe', '-v', 'error', '-select_streams', stream_type,
-       '-show_entries', 'stream=index',
-       '-of', 'default=noprint_wrappers=1:nokey=1',
-       file_path
-   ]
-
-   try:
-       result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-       return bool(result.stdout.strip())  # Returns True if there is any output (i.e., audio stream exists)
-   except Exception as e:
-       print(f"An error occurred while checking audio streams in {file_path}: {e}")
-       return False
+        print(f"An error occurred while checking audio streams in {file_path}: {e}")
+        return False
 
 def has_audio_stream(file_path: str) -> bool:
     return has_stream(file_path, 'a')
@@ -160,33 +122,37 @@ def has_subtitle_stream(file_path: str) -> bool:
     return has_stream(file_path, 's')
 
 def add_null_subtitle_stream(file_path: str):
-   """
-   Add a null subtitle stream to a media file using FFmpeg.
+    """
+    Add a null subtitle stream to a media file using FFmpeg.
 
-   :param file_path: Path to the media file.
-   :return: None
-   """
-   output_file = f"{Path(file_path).stem}_with_null_subs{Path(file_path).suffix}"
+    :param file_path: Path to the media file.
+    :return: None
+    """
+    output_file = f"{Path(file_path).stem}_with_null_subs{Path(file_path).suffix}"
 
-   command = [
-       'ffmpeg', '-i', file_path,
-       '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
-       '-c:v', 'copy', '-c:a', 'copy',
-       '-c:s', 'mov_text',
-       '-metadata:s:s:0', 'language=eng',
-       output_file
-   ]
+    command = [
+        'ffmpeg', '-i', file_path,
+        '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
+        '-c:v', 'copy', '-c:a', 'copy',
+        '-c:s', 'mov_text',
+        '-metadata:s:s:0', 'language=eng',
+        output_file
+    ]
 
-   try:
-       subprocess.run(command, check=True)
-       print(f"Added null subtitle stream to {file_path}. Output saved as {output_file}.")
-   except subprocess.CalledProcessError as e:
-       print(f"Failed to add null subtitle stream to {file_path}: {e}")
+    try:
+        subprocess.run(command, check=True)
+        print(f"Added null subtitle stream to {file_path}. Output saved as {output_file}.")
+    except subprocess.CalledProcessError as e:
+        print(f"Failed to add null subtitle stream to {file_path}: {e}")
 
 def process_files(model_type:str="turbo"):
     """
     Main function to process files with signal handling.
     """
+    keywords = load_keywords_from_file("keywords.txt")
+    if not keywords:
+        print("No keywords found in 'keywords.txt'. Exiting.")
+        sys.exit(1)
 
     print("loading model...", end="", flush=True)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -196,13 +162,6 @@ def process_files(model_type:str="turbo"):
     # Step 1: Get all files in ~/Movies
     all_files = get_all_files()
 
-    # Step 2: Load keywords from a text file
-    keywords = load_keywords_from_file("keywords.txt")
-
-    if not keywords:
-        print("No keywords found in 'keywords.txt'. Exiting.")
-        sys.exit(1)
-
     # Step 3: Filter files by loaded keywords
     filtered_files = filter_files_by_keywords(all_files, keywords)
 
@@ -210,14 +169,15 @@ def process_files(model_type:str="turbo"):
     sorted_filtered_files = sort_files_by_size(filtered_files)
 
     for file, matcher in sorted_filtered_files:
+        matchword = matcher[0]
         # Check if the file already has a subtitle stream
         if has_subtitle_stream(file):
-            print(f"Skipping {file}: already has a subtitle stream.")
+            print(f"Skipping {file}: already has a subtitle stream. (matched on '{matchword}')")
             continue
 
         # Check if there are audio streams before checking levels
         if not has_audio_stream(file):
-            print(f"Skipping {file}: no audio streams found.")
+            print(f"Skipping {file}: no audio streams found. (matched on '{matchword}')")
             continue
 
 #        # Check audio levels before transcribing
@@ -226,7 +186,7 @@ def process_files(model_type:str="turbo"):
 ##            add_null_subtitle_stream(file)
 #            continue
 
-        print(f"=== found {file}, matches '{matcher[0]}'")
+        print(f"=== found {file}, matches '{matchword}'")
         transcribe(file, model=model)
 
         if STOP_AFTER_CURRENT:
