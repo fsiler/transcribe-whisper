@@ -137,7 +137,7 @@ def has_stream(file_path:str, stream_type:str) -> bool:
        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
        return bool(result.stdout.strip())  # Returns True if there is any output (i.e., audio stream exists)
    except Exception as e:
-       print(f"An error occurred while checking audio streams in {file_path[0]}: {e}")
+       print(f"An error occurred while checking audio streams in {file_path}: {e}")
        return False
 
 def has_audio_stream(file_path:str) -> bool:
@@ -209,7 +209,7 @@ def process_files():
            continue
 
        print(f"=== found {file}, matches '{matcher[1]}'")
-       transcribe(file[0])
+       transcribe(file)
 
        if STOP_AFTER_CURRENT:
            print("\nStopping after current file as requested.")
