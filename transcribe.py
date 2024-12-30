@@ -9,9 +9,10 @@ import sys
 import tempfile
 import time
 
-from datetime   import timedelta
-from pprint     import pprint, pformat
-from subprocess import check_call, check_output, CalledProcessError
+from collections.abc import Callable
+from datetime        import timedelta
+from pprint          import pprint, pformat
+from subprocess      import check_call, check_output, CalledProcessError
 
 import torch
 import whisper
@@ -20,7 +21,7 @@ import whisper
 continue_processing = True
 sigint_count = 0
 
-def time_it(func):
+def time_it(func:Callable) -> Callable:
     """
     A decorator that times how long a function takes to execute.
     """
@@ -63,19 +64,19 @@ def get_file_streams(filename:str) -> dict:
 def has_subtitle_stream(streams:dict) -> bool:
     return any(stream['codec_type'] == 'subtitle' for stream in streams)
 
-def has_only_audio_and_subtitles(streams:dict) ->bool:
+def has_only_audio_and_subtitles(streams:dict) -> bool:
     return all(stream['codec_type'] in ['audio', 'subtitle'] for stream in streams)
 
-def copy_mod_access_times(src, dest):
+def copy_mod_access_times(src:str, dest:str) -> None:
     # Set the access and modification times of dest to match src
     st_info = os.stat(src)
     os.utime(dest, (st_info.st_atime, st_info.st_mtime))
 
-def is_program_available(program):
+def is_program_available(program:str) -> bool:
     """Check if a program is available on the system."""
     return shutil.which(program) is not None
 
-def copy_xattrs_and_tags(src, dest):
+def copy_xattrs_and_tags(src:str, dest:str):
     # Only perform xattr and tag copying on macOS (Darwin)
     if platform.system() == 'Darwin':
         # List all extended attributes
