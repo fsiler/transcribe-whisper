@@ -34,7 +34,7 @@ def signal_handler_second(signum, frame) -> None:
     print("\nSecond SIGINT received: Stopping immediately.")
     sys.exit()
 
-def get_all_files(path:str="~/Movies") -> list[str]:
+def get_all_files(path: str = "~/Movies") -> list[str]:
     """
     Generator that yields all file paths in the ~/Movies directory.
     """
@@ -43,21 +43,25 @@ def get_all_files(path:str="~/Movies") -> list[str]:
         for file in files:
             yield os.path.join(root, file)
 
-def filter_files_by_keywords(files:list[str], keywords:set[str]) -> FileMatch:
+def filter_files_by_keywords(files: list[str], keywords: set[str]) -> FileMatch:
     """
     Generator that filters files based on case-insensitive keyword matches in the filename.
+
     :param files: Iterable of file paths.
-    :param keywords: List of keywords to search for in filenames (case-insensitive).
+    :param keywords: Set of keywords to search for in filenames (case-insensitive).
     """
+    # Create a single regex pattern from all keywords
+    keyword_pattern = re.compile(rf'\b({"|".join(re.escape(keyword) for keyword in keywords)})\b', re.IGNORECASE)
+
     for file_path in files:
         fn = os.path.basename(file_path)
-        if any(matcher := re.match(rf'(\b{keyword}|{keyword}\b)', fn, re.IGNORECASE) for keyword in keywords):
-#            print(f"{file_path} matches {pformat(matcher)}")
+        if matcher := keyword_pattern.search(fn):
             yield (file_path, matcher)
 
-def sort_files_by_size(files:list[FileMatch]) -> list[FileMatch]:
+def sort_files_by_size(files: list[FileMatch]) -> list[FileMatch]:
     """
     Generator that sorts files by size (smallest to largest).
+
     :param files: Iterable of file paths.
     """
     # Get the file paths and their sizes
@@ -70,17 +74,19 @@ def sort_files_by_size(files:list[FileMatch]) -> list[FileMatch]:
     for file_path, _ in sorted_files:
         yield file_path
 
-def load_keywords_from_file(file_path:str="keywords.txt"):
+def load_keywords_from_file(file_path: str = "keywords.txt"):
     """
     Load keywords from a text file. Each line contains one keyword.
+
     :param file_path: Path to the text file containing keywords.
-    :return: List of keywords.
+
+    :return: Set of keywords.
     """
     with open(file_path, "r", encoding="utf-8") as f:
         # Remove empty lines and whitespace
         return {line.strip() for line in f if line.strip() and not line.startswith('#')}
 
-def analyze_audio_levels(file_path:str) -> bool:
+def analyze_audio_levels(file_path: str) -> bool:
     """
     Analyze audio levels of a media file and yield whether it is suitable for transcription.
 
@@ -117,7 +123,7 @@ def analyze_audio_levels(file_path:str) -> bool:
        print(f"An error occurred while analyzing {file_path}: {e}")
        yield False
 
-def has_stream(file_path:str, stream_type:str) -> bool:
+def has_stream(file_path: str, stream_type: str) -> bool:
    """
    Check if a media file has an audio stream using ffprobe.
 
@@ -140,13 +146,13 @@ def has_stream(file_path:str, stream_type:str) -> bool:
        print(f"An error occurred while checking audio streams in {file_path}: {e}")
        return False
 
-def has_audio_stream(file_path:str) -> bool:
+def has_audio_stream(file_path: str) -> bool:
     return has_stream(file_path, 'a')
 
-def has_subtitle_stream(file_path:str) -> bool:
+def has_subtitle_stream(file_path: str) -> bool:
     return has_stream(file_path, 's')
 
-def add_null_subtitle_stream(file_path:str):
+def add_null_subtitle_stream(file_path: str):
    """
    Add a null subtitle stream to a media file using FFmpeg.
 
@@ -208,7 +214,7 @@ def process_files():
 #           add_null_subtitle_stream(file)
            continue
 
-       print(f"=== found {file}, matches '{matcher[1]}'")
+       print(f"=== found {file}, matches '{matcher[0]}'")
        transcribe(file)
 
        if STOP_AFTER_CURRENT:
