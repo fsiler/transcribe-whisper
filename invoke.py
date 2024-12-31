@@ -60,8 +60,9 @@ def filter_files_by_keywords(files: list[str], keywords: set[str]) -> FileMatch:
     keyword_matcher = re.compile(keyword_pattern, re.IGNORECASE)
 
     for file_path in files:
-        fn = os.path.basename(file_path)
-        if matcher := keyword_matcher.search(fn):
+#        fn = os.path.basename(file_path)
+#        if matcher := keyword_matcher.search(fn):
+        if matcher := keyword_matcher.search(file_path):
             yield (file_path, matcher)
 
 def sort_files_by_size(files: list[FileMatch]) -> list[FileMatch]:
@@ -170,6 +171,10 @@ def process_files(model_type:str="turbo"):
 
     for file, matcher in sorted_filtered_files:
         matchword = matcher[0]
+
+#        if os.path.getsize(file) < 2_500_000:
+#            continue
+
         # Check if the file already has a subtitle stream
         if has_subtitle_stream(file):
             print(f"Skipping {file}: already has a subtitle stream. (matched on '{matchword}')")
@@ -186,7 +191,7 @@ def process_files(model_type:str="turbo"):
 ##            add_null_subtitle_stream(file)
 #            continue
 
-        print(f"=== found {file}, matches '{matchword}'")
+        print(f">>> found {file}, matches '{matchword}'")
         transcribe(file, model=model)
 
         if STOP_AFTER_CURRENT:
