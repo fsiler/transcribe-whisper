@@ -70,7 +70,6 @@ async def has_subtitle_stream(file_path: str) -> bool:
 async def check_file(file: tuple[str, re.Match]):
     file_path, matcher = file
     matchword = matcher[0]
-    print(f"checking {file_path}, match  {matchword}")
 
     if await has_subtitle_stream(file_path):
         return None  # Skip files with existing subtitle streams
@@ -78,17 +77,9 @@ async def check_file(file: tuple[str, re.Match]):
     if not await has_audio_stream(file_path):
         return None  # Skip files without audio streams
 
-    print(f">>> found file {file}")
     return file
 
-async def enumerate_target_files(sorted_filtered_files):
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:  # Limit to 10 threads
-        loop = asyncio.get_event_loop()
-        tasks = [loop.run_in_executor(executor, asyncio.run, check_file(file)) for file in sorted_filtered_files]
-        results = await asyncio.gather(*tasks)
-    return [file for file in results if file is not None]
-
-def process_files(model_type:str="turbo"):
+async def process_files(model_type:str="turbo"):
     keywords = load_keywords_from_file("keywords.txt")
     if not keywords:
         print("No keywords found in 'keywords.txt'. Exiting.")
@@ -103,21 +94,25 @@ def process_files(model_type:str="turbo"):
     filtered_files = filter_files_by_keywords(all_files, keywords)
     sorted_filtered_files = sort_files_by_size(filtered_files)
 
-    # Enumerate target files in parallel (limited to 10 threads)
-    target_files = asyncio.run(enumerate_target_files(sorted_filtered_files))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        loop = asyncio.get_event_loop()
+        futures = [loop.run_in_executor(executor, asyncio.run, check_file(file)) for file in sorted_filtered_files]
 
-    for file, matcher in target_files:
-        matchword = matcher[0]
-        print(f">>> found {file}, matches '{matchword}'")
-        transcribe(file, model=model)
+        for future in asyncio.as_completed(futures):
+            result = await future
+            if result:
+                file, matcher = result
+                matchword = matcher[0]
+                print(f">>> found {file}, matches '{matchword}'")
+                await loop.run_in_executor(executor, transcribe, file, model)
 
-        if STOP_AFTER_CURRENT:
-            print("\nStopping after current file as requested.")
-            break
+            if STOP_AFTER_CURRENT:
+                print("\nStopping as requested.")
+                break
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler_first)
     try:
-        process_files()
+        asyncio.run(process_files())
     except KeyboardInterrupt:
         print("\nProgram interrupted.")
