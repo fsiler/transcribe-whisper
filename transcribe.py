@@ -195,12 +195,16 @@ if __name__ == "__main__":
     signal.signal(signal.SIGHUP, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
+    print("loading model...", end="", flush=True)
+    model = whisper.load_model(model_type).to(device)
+    print("done.", flush=True)
+
     for orig_fn in args.files:
         if not continue_processing:
             print("Stopping due to received signal.")
             break
 
-        new_fn = transcribe(orig_fn, args.preserve_original)
+        new_fn = transcribe(orig_fn, args.preserve_original, model=model)
         # Reset SIGINT count after each file
         sigint_count = 0
 

@@ -79,16 +79,11 @@ async def check_file(file: tuple[str, re.Match]):
 
     return file
 
-async def process_files(model_type:str="turbo"):
+async def process_files(model):
     keywords = load_keywords_from_file("keywords.txt")
     if not keywords:
         print("No keywords found in 'keywords.txt'. Exiting.")
         sys.exit(1)
-
-    print("loading model...", end="", flush=True)
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    model = whisper.load_model(model_type).to(device)
-    print("done.", flush=True)
 
     all_files = get_all_files()
     filtered_files = filter_files_by_keywords(all_files, keywords)
@@ -112,7 +107,13 @@ async def process_files(model_type:str="turbo"):
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler_first)
+
+    print("loading model...", end="", flush=True)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model = whisper.load_model("turbo").to(device)
+    print("done.", flush=True)
+
     try:
-        asyncio.run(process_files())
+        asyncio.run(process_files(model=model))
     except KeyboardInterrupt:
         print("\nProgram interrupted.")
