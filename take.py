@@ -10,6 +10,16 @@ from typing     import Generator, Iterable
 from transcribe import transcribe
 from util       import has_audio_stream, has_subtitle_stream
 
+def count_calls(gen):
+    def wrapper(*args, **kwargs):
+        wrapper.call_count = 0
+        for item in gen(*args, **kwargs):
+            wrapper.call_count += 1
+            yield item
+    wrapper.call_count = 0
+    return wrapper
+
+@count_calls
 def get_all_files(path: str = "~/Movies") -> Generator[tuple[int,str], None, None]:
     movies_dir = os.path.expanduser(path)
     for root, _, files in os.walk(movies_dir):
@@ -32,6 +42,7 @@ def filter_keywords(file_path, keyword_matcher:re.Pattern) -> [str,re.Match]:
 
     return None
 
+@count_calls
 def filter_files(files: Iterable[tuple[int, str]], exclude_suffixes: tuple = ('.srt', '.xz')) -> Generator[tuple[int, str], None, None]:
     keyword_matcher = load_keywords_from_file()
     for size, path in files:
@@ -57,12 +68,18 @@ async def main():
     all_files = get_all_files()
     filtered_files = filter_files(all_files)
 
-    while not q.empty() and filtered_files:
+    while not q.empty() or True:
         # every iteration, let's get 100 candidates available, then process the smallest one
         for i in take(100, filtered_files):
             await q.put(i)
 
+        if q.empty():
+            break
+
         size, file_path = await q.get()
         transcribe(file_path)
+
+    print(f"get_all_files was called {get_all_files.call_count} times")
+    print(f"filter_files was called {filter_files.call_count} times")
 
 run(main())
