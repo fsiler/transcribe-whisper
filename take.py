@@ -1,25 +1,30 @@
 #!/usr/bin/env python
 import os
 import re
+import signal
+import asyncio
 
-from asyncio    import PriorityQueue, run
+from asyncio    import PriorityQueue
+from functools  import partial
 from itertools  import islice
-from pprint     import pprint
-from typing     import Generator, Iterable
+from typing     import Generator, Iterable, Tuple
 
+import whisper
+
+from torch.cuda import is_available as cuda_is_available
 from transcribe import transcribe
 from util       import has_audio_stream, has_subtitle_stream
 
-def count_calls(gen):
-    def wrapper(*args, **kwargs):
-        wrapper.call_count = 0
-        for item in gen(*args, **kwargs):
-            wrapper.call_count += 1
-            yield item
-    wrapper.call_count = 0
-    return wrapper
+# Global flag to indicate when to stop
+stop_flag = False
 
-@count_calls
+def signal_handler(signum, frame):
+    global stop_flag
+    print("\nReceived SIGINT. Stopping after current transcription...")
+    stop_flag = True
+
+signal.signal(signal.SIGINT, signal_handler)
+
 def get_all_files(path: str = "~/Movies") -> Generator[tuple[int,str], None, None]:
     movies_dir = os.path.expanduser(path)
     for root, _, files in os.walk(movies_dir):
@@ -42,12 +47,24 @@ def filter_keywords(file_path, keyword_matcher:re.Pattern) -> [str,re.Match]:
 
     return None
 
-@count_calls
-def filter_files(files: Iterable[tuple[int, str]], exclude_suffixes: tuple = ('.srt', '.xz')) -> Generator[tuple[int, str], None, None]:
+#def filter_files(files: Iterable[tuple[int, str]], exclude_suffixes: tuple = ('.srt', '.xz')) -> Generator[tuple[int, str], None, None]:
+#    keyword_matcher = load_keywords_from_file()
+#    for size, path in files:
+#        if not path.endswith(exclude_suffixes) and filter_keywords(path, keyword_matcher) and has_audio_stream(path) and not has_subtitle_stream(path):
+#            yield (size, path)
+
+def filter_files(files: Iterable[Tuple[int, str]], exclude_suffixes: Tuple[str, ...] = ('.srt', '.xz')) -> Generator[Tuple[int, str], None, None]:
     keyword_matcher = load_keywords_from_file()
-    for size, path in files:
-        if not path.endswith(exclude_suffixes) and filter_keywords(path, keyword_matcher) and has_audio_stream(path) and not has_subtitle_stream(path):
-            yield (size, path)
+
+    def is_valid_file(path: str) -> bool:
+        return (
+            not path.endswith(exclude_suffixes) and
+            filter_keywords(path, keyword_matcher) and
+            has_audio_stream(path) and
+            not has_subtitle_stream(path)
+        )
+
+    yield from ((size, path) for size, path in files if is_valid_file(path))
 
 def take(n:int, iterable):
     return list(islice(iterable, n))
@@ -65,10 +82,18 @@ async def pprint_pq(pq):
 async def main():
     q = PriorityQueue()
 
+    print("loading model...", end="", flush=True)
+    device = 'cuda' if cuda_is_available() else 'cpu'
+    model = whisper.load_model("turbo").to(device)
+    print("done.", flush=True)
+
     all_files = get_all_files()
     filtered_files = filter_files(all_files)
 
     while not q.empty() or True:
+        if stop_flag:
+            break
+
         # every iteration, let's get 100 candidates available, then process the smallest one
         for i in take(100, filtered_files):
             await q.put(i)
@@ -77,9 +102,10 @@ async def main():
             break
 
         size, file_path = await q.get()
-        transcribe(file_path)
+        transcribe(file_path, model=model)
 
-    print(f"get_all_files was called {get_all_files.call_count} times")
-    print(f"filter_files was called {filter_files.call_count} times")
+        # Give a chance for the event loop to process the SIGINT
+        await asyncio.sleep(0)
 
-run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
