@@ -1,38 +1,45 @@
 #!/usr/bin/env python
+import asyncio
+import logging
 import os
 import re
 import signal
-import asyncio
 
 from asyncio    import PriorityQueue
 from functools  import partial
 from itertools  import islice
+from sys        import exit
 from typing     import Generator, Iterable, Tuple
 
 import whisper
 
 from torch.cuda import is_available as cuda_is_available
 from transcribe import transcribe
-from util       import has_audio_stream, has_subtitle_stream
+from util       import has_audio_stream, no_subtitle_stream
 
 # Global flag to indicate when to stop
-stop_flag = False
+STOP_FLAG = 0
+
+logger = logging.getLogger(__name__)
 
 def signal_handler(signum, frame):
-    global stop_flag
+    global STOP_FLAG
+
     print("\nReceived SIGINT. Stopping after current transcription...")
-    stop_flag = True
+    STOP_FLAG += 1
 
-signal.signal(signal.SIGINT, signal_handler)
+    if STOP_FLAG > 1:
+        exit()
 
-def get_all_files(path: str = "~/Movies") -> Generator[tuple[int,str], None, None]:
+def get_all_files(path: str = "~/Movies") -> Generator[str, None, None]:
     movies_dir = os.path.expanduser(path)
     for root, _, files in os.walk(movies_dir):
         for file in files:
             file_path = os.path.join(root, file)
-            yield (os.path.getsize(file_path), file_path)
+            logging.debug(f"found file {file_path}")
+            yield file_path
 
-def load_keywords_from_file(file_path: str = "keywords.txt"):
+def load_keywords_from_file(file_path: str = "keywords.txt") -> re.Pattern:
     with open(file_path, "r", encoding="utf-8") as f:
         keywords = {line.strip() for line in f if line.strip() and not line.startswith('#')}
 
@@ -41,71 +48,51 @@ def load_keywords_from_file(file_path: str = "keywords.txt"):
     print(f"matching pattern: {keyword_pattern}")
     return re.compile(keyword_pattern, re.IGNORECASE)
 
-def filter_keywords(file_path, keyword_matcher:re.Pattern) -> [str,re.Match]:
-    if matcher := keyword_matcher.search(file_path):
-        return (file_path, matcher)
-
-    return None
-
-#def filter_files(files: Iterable[tuple[int, str]], exclude_suffixes: tuple = ('.srt', '.xz')) -> Generator[tuple[int, str], None, None]:
-#    keyword_matcher = load_keywords_from_file()
-#    for size, path in files:
-#        if not path.endswith(exclude_suffixes) and filter_keywords(path, keyword_matcher) and has_audio_stream(path) and not has_subtitle_stream(path):
-#            yield (size, path)
-
-def filter_files(files: Iterable[Tuple[int, str]], exclude_suffixes: Tuple[str, ...] = ('.srt', '.xz')) -> Generator[Tuple[int, str], None, None]:
-    keyword_matcher = load_keywords_from_file()
-
-    def is_valid_file(path: str) -> bool:
-        return (
-            not path.endswith(exclude_suffixes) and
-            filter_keywords(path, keyword_matcher) and
-            has_audio_stream(path) and
-            not has_subtitle_stream(path)
-        )
-
-    yield from ((size, path) for size, path in files if is_valid_file(path))
-
-def take(n:int, iterable):
+def take[T](n:int, iterable:Iterable[T]) -> list[T]:
     return list(islice(iterable, n))
 
-async def pprint_pq(pq):
-    print("Priority Queue Contents:")
-    print("----------------------")
-    print("Priority | Value")
-    print("----------------------")
-    while not pq.empty():
-        priority, value = await pq.get()
-        print(f"{priority:8} | {value}")
-    print("----------------------")
+async def main() -> None:
+    global STOP_FLAG
 
-async def main():
     q = PriorityQueue()
+
+    all_files = get_all_files()
+
+    filter1 = filter(lambda fn: not fn.endswith( ('srt','xz')), all_files)
+
+    keyword_matcher = load_keywords_from_file()
+    filter2 = filter(lambda fn: keyword_matcher.search(fn), filter1)
+
+    filter3 = filter(no_subtitle_stream, filter2)
+    filter4 = filter(has_audio_stream, filter3)
 
     print("loading model...", end="", flush=True)
     device = 'cuda' if cuda_is_available() else 'cpu'
     model = whisper.load_model("turbo").to(device)
     print("done.", flush=True)
 
-    all_files = get_all_files()
-    filtered_files = filter_files(all_files)
-
     while not q.empty() or True:
-        if stop_flag:
+        if STOP_FLAG:
             break
 
         # every iteration, let's get 100 candidates available, then process the smallest one
-        for i in take(100, filtered_files):
-            await q.put(i)
+        for fn in take(25, filter4):
+            item = (os.path.getsize(fn), fn)
+            logging.info(f"= queuing {item} =")
+            await q.put(item)
 
         if q.empty():
             break
 
-        size, file_path = await q.get()
+        _, file_path = await q.get()
         transcribe(file_path, model=model)
 
         # Give a chance for the event loop to process the SIGINT
         await asyncio.sleep(0)
 
 if __name__ == "__main__":
+    signal.signal(signal.SIGINT, signal_handler)
+
+    logging.basicConfig(level=logging.INFO)
+
     asyncio.run(main())
