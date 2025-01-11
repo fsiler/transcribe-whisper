@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 def signal_handler(signum, frame):
     global STOP_FLAG
 
-    print("\nReceived SIGINT. Stopping after current transcription...")
+    logging.error("\nReceived SIGINT. Stopping after current transcription...")
     STOP_FLAG += 1
 
     if STOP_FLAG > 1:
@@ -45,7 +45,7 @@ def load_keywords_from_file(file_path: str = "keywords.txt") -> re.Pattern:
 
     keywords_piped = f'({"|".join(re.escape(keyword) for keyword in sorted(keywords))})'
     keyword_pattern = rf'(\b{keywords_piped}|{keywords_piped}\b)'
-    print(f"matching pattern: {keyword_pattern}")
+    logging.info(f"matching pattern: {keyword_pattern}")
     return re.compile(keyword_pattern, re.IGNORECASE)
 
 def take[T](n:int, iterable:Iterable[T]) -> list[T]:
@@ -66,10 +66,10 @@ async def main() -> None:
     filter3 = filter(no_subtitle_stream, filter2)
     filter4 = filter(has_audio_stream, filter3)
 
-    print("loading model...", end="", flush=True)
+    logging.info("loading model...")
     device = 'cuda' if cuda_is_available() else 'cpu'
     model = whisper.load_model("turbo").to(device)
-    print("done.", flush=True)
+    logging.info("done.")
 
     while not q.empty() or True:
         if STOP_FLAG:
