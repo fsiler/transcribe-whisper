@@ -31,6 +31,14 @@ def signal_handler(signum, frame):
     if STOP_FLAG > 1:
         exit()
 
+def get_audio_length_seconds(fn: str) -> float:
+    try:
+        audio = whisper.load_audio(fn)
+        return len(audio) / whisper.audio.SAMPLE_RATE
+    except Exception as e:
+        logging.debug(f"! couldn't get audio for {fn}: {e}")
+        raise ValueError
+
 def get_all_files(path: str = "~/Movies") -> Generator[str, None, None]:
     movies_dir = os.path.expanduser(path)
     for root, _, files in os.walk(movies_dir):
@@ -61,10 +69,10 @@ async def main() -> None:
     filter1 = filter(lambda fn: not fn.endswith( ('srt','xz')), all_files)
 
     keyword_matcher = load_keywords_from_file()
-    filter2 = filter(lambda fn: keyword_matcher.search(fn), filter1)
+#    filter2 = filter(lambda fn: keyword_matcher.search(fn), filter1)
 
-    filter3 = filter(no_subtitle_stream, filter2)
-    filter4 = filter(has_audio_stream, filter3)
+    filter3 = filter(no_subtitle_stream, filter1)
+#    filter4 = filter(has_audio_stream, filter3)
 
     logging.info("loading model...")
     device = 'cuda' if cuda_is_available() else 'cpu'
@@ -75,9 +83,12 @@ async def main() -> None:
         if STOP_FLAG:
             break
 
-        # every iteration, let's get 100 candidates available, then process the smallest one
-        for fn in take(25, filter4):
-            item = (os.path.getsize(fn), fn)
+        # every iteration, let's find candidates, then process the smallest one overall
+        for fn in take(25, filter3):
+            try:
+                item = (get_audio_length_seconds(fn), fn)
+            except ValueError:
+                logging.info("! couldn't get audio for {fn}")
             logging.info(f"= queuing {item} =")
             await q.put(item)
 

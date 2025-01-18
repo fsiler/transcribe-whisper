@@ -182,10 +182,10 @@ def get_srt(fn:str, model_type:str = "turbo", model = None) -> str:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Transcribe audio files and optionally preserve the original files.")
 
-    parser.add_argument('files', metavar='F', type=str, nargs='+',
+    parser.add_argument('files', type=str, metavar='file', nargs='+',
                         help='Files to process')
 
-    parser.add_argument('--preserve-original', action='store_true',
+    parser.add_argument('-k', '--preserve-original', action='store_true',
                         help='Preserve the original files after processing')
 
     args = parser.parse_args()
