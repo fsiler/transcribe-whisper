@@ -160,7 +160,6 @@ def transcribe(orig_fn:str, preserve_original:bool=False, model=None) -> str:
 
 @time_it
 def get_srt(fn:str, model_type:str = "turbo", model = None) -> str:
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     if not model:
         print("loading model...", end="", flush=True)
@@ -192,11 +191,15 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Set up signal handlers
-    signal.signal(signal.SIGHUP, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
+    try:
+      signal.signal(signal.SIGHUP, signal_handler)
+      signal.signal(signal.SIGINT, signal_handler)
+    except AttributeError as e:
+      print(f"couldn't register signal handler, {e}")
 
     print("loading model...", end="", flush=True)
-    model = whisper.load_model(model_type).to(device)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model = whisper.load_model("turbo").to(device)
     print("done.", flush=True)
 
     for orig_fn in args.files:
