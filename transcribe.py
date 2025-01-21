@@ -161,9 +161,9 @@ def transcribe(orig_fn:str, preserve_original:bool=False, model=None) -> str:
 @time_it
 def get_srt(fn:str, model_type:str = "turbo", model = None) -> str:
 
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     if not model:
         print("loading model...", end="", flush=True)
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
         model = whisper.load_model(model_type).to(device)
         print("done.", flush=True)
 
