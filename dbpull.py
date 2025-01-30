@@ -27,31 +27,32 @@ def transcribe_video(filename, length):
     conn.commit()
     conn.close()
 
-def get_eligible_videos(limit=100):
+def read_keywords(filename):
+    keywords = []
+    with open(filename, 'r') as file:
+        for line in file:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                keywords.append(line)
+    return keywords
+
+def get_eligible_videos(limit=100, keywords_file='keywords.txt'):
+    keywords = read_keywords(keywords_file)
+
     conn = sqlite3.connect('video_database.db')
     cursor = conn.cursor()
 
-    query = """
+    # Build the OR clauses dynamically
+    or_clauses = ' OR '.join([f"filename LIKE '%{keyword}%'" for keyword in keywords])
+
+    query = f"""
     SELECT filename, length_seconds
     FROM videos
     WHERE
       has_audio = 1
       AND has_subtitles = 0
       AND (
-           filename LIKE '%dan koe%'
-        OR filename LIKE '%rohn%'
-        OR filename LIKE '%hormozi%'
-        OR filename LIKE '%skool%'
-        OR filename LIKE '%napoleon%'
-        OR filename LIKE '%brian tracy%'
-        OR filename LIKE '%hunkin%'
-        OR filename LIKE '%mikeselectricstuff%'
-        OR filename LIKE '%ziglar%'
-        OR filename LIKE '%jordan peterson%'
-        OR filename LIKE '%sam ovens%'
-        OR filename LIKE '%ali abdaal%'
-        OR filename LIKE '%degrasse%'
-        OR filename LIKE '%ariely%'
+           {or_clauses}
       )
     ORDER BY length_seconds ASC
     LIMIT ?
